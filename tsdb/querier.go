@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -110,6 +111,27 @@ func (q *querier) Select(sortSeries bool, hints *storage.SelectHints, ms ...*lab
 	return NewMergedSeriesSet(ss), ws, nil
 }
 
+func (q *querier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+	var exemplars [][]exemplar.Exemplar
+	ss, err := q.Select(ms...)
+	if err != nil {
+		return nil, err
+	}
+	// ss = ss.(baseChunkSeries)
+	for ss.Next() {
+		hash := ss.At().Labels().Hash()
+		seriesExemplars, err := exemplarStorage.Select(hash)
+		if err != nil { // failure to find exemplars for a single series in the seriesset shouldn't be fatal
+			// save error for returning?
+			continue
+		}
+		if len(seriesExemplars) > 0 {
+			exemplars = append(exemplars, seriesExemplars)
+		}
+	}
+	return exemplars, nil
+}
+
 func (q *querier) Close() error {
 	var merr tsdb_errors.MultiError
 
@@ -150,6 +172,11 @@ func (q *verticalQuerier) sel(sortSeries bool, hints *storage.SelectHints, qs []
 		return nil, ws, err
 	}
 	return newMergedVerticalSeriesSet(a, b), ws, nil
+}
+
+// Exemplars is a no-op for verticalQuerier.
+func (q *verticalQuerier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+	return nil, nil
 }
 
 // NewBlockQuerier returns a querier against the reader.
@@ -219,6 +246,27 @@ func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ..
 		mint: mint,
 		maxt: maxt,
 	}, nil, nil
+}
+
+func (q *blockQuerier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+	var exemplars [][]exemplar.Exemplar
+	ss, err := q.Select(ms...)
+	if err != nil {
+		return nil, err
+	}
+	// ss = ss.(baseChunkSeries)
+	for ss.Next() {
+		hash := ss.At().Labels().Hash()
+		seriesExemplars, err := exemplarStorage.Select(hash)
+		if err != nil { // failure to find exemplars for a single series in the seriesset shouldn't be fatal
+			// save error for returning?
+			continue
+		}
+		if len(seriesExemplars) > 0 {
+			exemplars = append(exemplars, seriesExemplars)
+		}
+	}
+	return exemplars, nil
 }
 
 func (q *blockQuerier) LabelValues(name string) ([]string, storage.Warnings, error) {
