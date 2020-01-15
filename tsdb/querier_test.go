@@ -21,11 +21,13 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -2190,6 +2192,96 @@ func TestClose(t *testing.T) {
 	testutil.Ok(t, err)
 	testutil.Ok(t, q.Close())
 	testutil.NotOk(t, q.Close())
+}
+
+func TestSelectExemplars(t *testing.T) {
+	h, err := NewHead(nil, nil, nil, 1000)
+	testutil.Ok(t, err)
+	defer func() {
+		testutil.Ok(t, h.Close())
+	}()
+
+	s1 := labels.Labels{
+		{Name: "service", Value: "asdf"},
+		{Name: "cluster", Value: "us-east"},
+	}
+	s2 := labels.Labels{
+		{Name: "service", Value: "asdf"},
+		{Name: "cluster", Value: "us-west"},
+	}
+
+	app := h.Appender()
+	app.Add(s1, 0, 0)
+	app.Add(s2, 0, 0)
+	testutil.Ok(t, app.Commit())
+
+	e1 := exemplar.Exemplar{
+		Labels: labels.Labels{
+			labels.Label{
+				Name:  "traceID",
+				Value: "qwerty",
+			},
+		},
+		Value: 0.1,
+		HasTs: false,
+	}
+
+	e2 := exemplar.Exemplar{
+		Labels: labels.Labels{
+			labels.Label{
+				Name:  "traceID",
+				Value: "hjkl",
+			},
+		},
+		Value: 0.11,
+		HasTs: false,
+	}
+	es := NewExemplarStorage()
+	es.AddExemplar(s1, 0, e1)
+	es.AddExemplar(s2, 0, e2)
+
+	q, err := NewBlockQuerier(&rangeHead{
+		head: h,
+		mint: h.MinTime(),
+		maxt: h.MaxTime(),
+	}, math.MinInt64, math.MaxInt64)
+
+	m1 := labels.Matcher{
+		Type:  labels.MatchEqual,
+		Name:  "service",
+		Value: "asdf",
+	}
+
+	exemplars, err := q.Exemplars(es, &m1)
+	testutil.Ok(t, err)
+	testutil.Assert(t, len(exemplars) == 2, "wrong # of exemplars found: found %d, expected %d", len(exemplars), 2)
+
+	m2 := labels.Matcher{
+		Type:  labels.MatchEqual,
+		Name:  "service",
+		Value: "asdf",
+	}
+	m3 := labels.Matcher{
+		Type:  labels.MatchEqual,
+		Name:  "cluster",
+		Value: "us-west",
+	}
+
+	exemplars, err = q.Exemplars(es, &m2, &m3)
+	testutil.Ok(t, err)
+	testutil.Assert(t, len(exemplars) == 1, "wrong # of exemplars found: found %d, expected %d", len(exemplars), 1)
+	testutil.Assert(t, reflect.DeepEqual(exemplars[0][0], e2), "wrong exemplar returned: got %+v, expected %+v", exemplars[0][0], e2)
+
+	m4 := labels.Matcher{
+		Type:  labels.MatchNotEqual,
+		Name:  "cluster",
+		Value: "us-west",
+	}
+
+	exemplars, err = q.Exemplars(es, &m2, &m4)
+	testutil.Ok(t, err)
+	testutil.Assert(t, len(exemplars) == 1, "wrong # of exemplars found: found %d, expected %d", len(exemplars), 1)
+	testutil.Assert(t, reflect.DeepEqual(exemplars[0][0], e1), "wrong exemplar returned: got %+v, expected %+v", exemplars[0][0], e1)
 }
 
 func BenchmarkQueries(b *testing.B) {
