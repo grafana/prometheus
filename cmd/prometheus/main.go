@@ -212,7 +212,7 @@ func main() {
 	a.Flag("storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Default("false").BoolVar(&cfg.tsdb.WALCompression)
 
-	a.Flag("storage.remote.flush-deadline", "How long to wait flushing sample on shutdown or config reload.").
+	a.Flag("storage.remote.flush-deadline", "How long to wait flushing sample and metadata on shutdown or config reload.").
 		Default("1m").PlaceHolder("<duration>").SetValue(&cfg.RemoteFlushDeadline)
 
 	a.Flag("storage.remote.read-sample-limit", "Maximum overall number of samples to return via the remote read interface, in a single query. 0 means no limit. This limit is ignored for streamed response types.").
@@ -338,7 +338,8 @@ func main() {
 
 	var (
 		localStorage  = &readyStorage{}
-		remoteStorage = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline))
+		scraper       = &scrape.ReadyScrapeManager{}
+		remoteStorage = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
 		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
 
@@ -381,6 +382,8 @@ func main() {
 			ResendDelay:     time.Duration(cfg.resendDelay),
 		})
 	)
+
+	scraper.Set(scrapeManager)
 
 	cfg.web.Context = ctxWeb
 	cfg.web.TSDB = localStorage.Get

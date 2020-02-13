@@ -92,7 +92,7 @@ func TestNoDuplicateReadConfigs(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline)
+		s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil)
 		conf := &config.Config{
 			GlobalConfig:      config.DefaultGlobalConfig,
 			RemoteReadConfigs: tc.cfgs,

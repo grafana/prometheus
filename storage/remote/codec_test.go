@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/textparse"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/testutil"
@@ -209,4 +210,35 @@ func TestNegotiateResponseType(t *testing.T) {
 	_, err = NegotiateResponseType([]prompb.ReadRequest_ResponseType{20})
 	testutil.NotOk(t, err, "expected error due to not supported requested response types")
 	testutil.Equals(t, "server does not support any of the requested response types: [20]; supported: map[SAMPLES:{} STREAMED_XOR_CHUNKS:{}]", err.Error())
+}
+
+func TestMetricTypeToMetricTypeProto(t *testing.T) {
+	tc := []struct {
+		desc     string
+		input    textparse.MetricType
+		expected prompb.MetricMetadata_MetricType
+	}{
+		{
+			desc:     "with a single-word metric",
+			input:    textparse.MetricTypeCounter,
+			expected: prompb.MetricMetadata_COUNTER,
+		},
+		{
+			desc:     "with a two-word metric",
+			input:    textparse.MetricTypeStateset,
+			expected: prompb.MetricMetadata_STATESET,
+		},
+		{
+			desc:     "with an unknown metric",
+			input:    "not-known",
+			expected: prompb.MetricMetadata_UNKNOWN,
+		},
+	}
+
+	for _, tt := range tc {
+		t.Run(tt.desc, func(t *testing.T) {
+			m := metricTypeToMetricTypeProto(tt.input)
+			testutil.Equals(t, tt.expected, m)
+		})
+	}
 }
