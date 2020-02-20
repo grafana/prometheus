@@ -13,12 +13,31 @@
 
 package exemplar
 
-import "github.com/prometheus/prometheus/pkg/labels"
+import (
+	"github.com/prometheus/prometheus/pkg/labels"
+)
 
 // Exemplar is additional information associated with a time series.
 type Exemplar struct {
 	Labels labels.Labels
 	Value  float64
-	HasTs  bool
 	Ts     int64
+	HasTs  bool
+}
+
+// Equals compares if the exemplar e is the same as e2.
+func (e *Exemplar) Equals(e2 Exemplar) bool {
+	if e.Labels.Hash() != e2.Labels.Hash() {
+		return false
+	}
+
+	if e.Value != e2.Value {
+		return false
+	}
+
+	if e.Ts != e2.Ts {
+		return false
+	}
+
+	return true
 }

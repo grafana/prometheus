@@ -2236,7 +2236,7 @@ func TestSelectExemplars(t *testing.T) {
 		Value: 0.11,
 		HasTs: false,
 	}
-	es := NewExemplarStorage()
+	es := NewExemplarStorage(5)
 	es.AddExemplar(s1, 0, e1)
 	es.AddExemplar(s2, 0, e2)
 

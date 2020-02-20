@@ -42,6 +42,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/gate"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/textparse"
@@ -290,6 +291,7 @@ func TestEndpoints(t *testing.T) {
 			test_metric1{foo="bar"} 0+100x100
 			test_metric1{foo="boo"} 1+0x100
 			test_metric2{foo="boo"} 1+0x100
+			test_metric3{foo="qwerty", cluster="abc"} 1+0x100
 	`)
 	testutil.Ok(t, err)
 	defer suite.Close()
@@ -311,6 +313,7 @@ func TestEndpoints(t *testing.T) {
 		api := &API{
 			Queryable:             suite.Storage(),
 			QueryEngine:           suite.QueryEngine(),
+			ExemplarQueryable:     suite.ExemplarStorage(),
 			targetRetriever:       testTargetRetriever,
 			alertmanagerRetriever: testAlertmanagerRetriever{},
 			flagsMap:              sampleFlagMap,
@@ -319,8 +322,7 @@ func TestEndpoints(t *testing.T) {
 			ready:                 func(f http.HandlerFunc) http.HandlerFunc { return f },
 			rulesRetriever:        algr,
 		}
-
-		testEndpoints(t, api, testTargetRetriever, true)
+		testEndpoints(t, api, testTargetRetriever, suite.ExemplarStorage(), true)
 	})
 
 	// Run all the API tests against a API that is wired to forward queries via
@@ -375,6 +377,7 @@ func TestEndpoints(t *testing.T) {
 		api := &API{
 			Queryable:             remote,
 			QueryEngine:           suite.QueryEngine(),
+			ExemplarQueryable:     suite.ExemplarStorage(),
 			targetRetriever:       testTargetRetriever,
 			alertmanagerRetriever: testAlertmanagerRetriever{},
 			flagsMap:              sampleFlagMap,
@@ -384,7 +387,7 @@ func TestEndpoints(t *testing.T) {
 			rulesRetriever:        algr,
 		}
 
-		testEndpoints(t, api, testTargetRetriever, false)
+		testEndpoints(t, api, testTargetRetriever, suite.ExemplarStorage(), false)
 	})
 
 }
@@ -526,7 +529,7 @@ func setupRemote(s storage.Storage) *httptest.Server {
 	return httptest.NewServer(handler)
 }
 
-func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI bool) {
+func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.ExemplarStorage, testLabelAPI bool) {
 	start := time.Unix(0, 0)
 
 	type targetMetadata struct {
@@ -543,6 +546,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 		errType     errorType
 		sorter      func(interface{})
 		metadata    []targetMetadata
+		exemplars   []exemplarData
 	}
 
 	var tests = []test{
@@ -1430,6 +1434,34 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 				},
 			},
 		},
+		{
+			endpoint: api.queryExemplars,
+			query: url.Values{
+				"query": []string{`{cluster="abc"}`},
+			},
+			exemplars: []exemplarData{
+				exemplarData{
+					labels.FromStrings("__name__", "test_metric3", "foo", "qwerty", "cluster", "abc"),
+					[]exemplar.Exemplar{
+						exemplar.Exemplar{
+							Labels: labels.FromStrings("id", "abc"),
+							Value:  10,
+						},
+					},
+				},
+			},
+			response: []exemplarData{
+				exemplarData{
+					labels.FromStrings("__name__", "test_metric3", "foo", "qwerty", "cluster", "abc"),
+					[]exemplar.Exemplar{
+						exemplar.Exemplar{
+							Labels: labels.FromStrings("id", "abc"),
+							Value:  10,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	if testLabelAPI {
@@ -1442,6 +1474,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 				response: []string{
 					"test_metric1",
 					"test_metric2",
+					"test_metric3",
 				},
 			},
 			{
@@ -1452,6 +1485,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 				response: []string{
 					"bar",
 					"boo",
+					"qwerty",
 				},
 			},
 			// Bad name parameter.
@@ -1465,7 +1499,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 			// Label names.
 			{
 				endpoint: api.labelNames,
-				response: []string{"__name__", "foo"},
+				response: []string{"__name__", "cluster", "foo"},
 			},
 		}...)
 	}
@@ -1507,6 +1541,11 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, testLabelAPI
 			tr.ResetMetadataStore()
 			for _, tm := range test.metadata {
 				tr.SetMetadataStoreForTargets(tm.identifier, &testMetaStore{Metadata: tm.metadata})
+			}
+
+			es.Reset()
+			for _, te := range test.exemplars {
+				es.Appender().AddExemplar(te.seriesLabels, 1234, te.exemplars[0])
 			}
 
 			res := test.endpoint(req.WithContext(ctx))

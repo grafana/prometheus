@@ -39,6 +39,7 @@ import (
 	"github.com/prometheus/common/route"
 
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/gate"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/textparse"
@@ -141,6 +142,11 @@ type RuntimeInfo struct {
 	StorageRetention    string    `json:"storageRetention"`
 }
 
+type exemplarData struct {
+	seriesLabels labels.Labels
+	exemplars    []exemplar.Exemplar
+}
+
 type response struct {
 	Status    status      `json:"status"`
 	Data      interface{} `json:"data,omitempty"`
@@ -170,8 +176,9 @@ type TSDBAdmin interface {
 // API can register a set of endpoints in a router and handle
 // them using the provided storage and query engine.
 type API struct {
-	Queryable   storage.Queryable
-	QueryEngine *promql.Engine
+	Queryable         storage.Queryable
+	QueryEngine       *promql.Engine
+	ExemplarQueryable storage.ExemplarQueryable
 
 	targetRetriever       targetRetriever
 	alertmanagerRetriever alertmanagerRetriever
@@ -202,6 +209,7 @@ func init() {
 func NewAPI(
 	qe *promql.Engine,
 	q storage.Queryable,
+	eq storage.ExemplarQueryable,
 	tr targetRetriever,
 	ar alertmanagerRetriever,
 	configFunc func() config.Config,
@@ -222,6 +230,7 @@ func NewAPI(
 	return &API{
 		QueryEngine:           qe,
 		Queryable:             q,
+		ExemplarQueryable:     eq,
 		targetRetriever:       tr,
 		alertmanagerRetriever: ar,
 
@@ -271,6 +280,8 @@ func (api *API) Register(r *route.Router) {
 	r.Post("/query", wrap(api.query))
 	r.Get("/query_range", wrap(api.queryRange))
 	r.Post("/query_range", wrap(api.queryRange))
+	r.Get("/query_exemplar", wrap(api.queryExemplars))
+	r.Post("/query_exemplar", wrap(api.queryExemplars))
 
 	r.Get("/labels", wrap(api.labelNames))
 	r.Post("/labels", wrap(api.labelNames))
@@ -431,6 +442,51 @@ func (api *API) queryRange(r *http.Request) apiFuncResult {
 		Result:     res.Value,
 		Stats:      qs,
 	}, nil, res.Warnings, qry.Close}
+}
+
+func (api *API) queryExemplars(r *http.Request) apiFuncResult {
+	ctx := r.Context()
+	if to := r.FormValue("timeout"); to != "" {
+		var cancel context.CancelFunc
+		timeout, err := parseDuration(to)
+		if err != nil {
+			err = errors.Wrap(err, "invalid parameter 'timeout'")
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+		}
+
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	// here we would pass the query to something for tsdb.Querier that only returns label matchers
+	q, err := api.Queryable.Querier(ctx, timestamp.FromTime(minTime), timestamp.FromTime(maxTime))
+	if err != nil {
+		// return an error
+	}
+
+	ms, err := promql.ParseMetricSelector(r.FormValue("query"))
+	if err != nil {
+		// return err
+	}
+
+	ss, _, err := q.Select(nil, ms...)
+	if err != nil {
+		// return err
+	}
+
+	eq, err := api.ExemplarQueryable.Querier(context.Background())
+	if err != nil {
+		// return err
+	}
+	var retExemplars []exemplarData
+	for ss.Next() {
+		res, err := eq.Select(ss.At().Labels().Hash())
+		if err != nil {
+			// return error
+		}
+		retExemplars = append(retExemplars, exemplarData{seriesLabels: ss.At().Labels(), exemplars: res})
+	}
+	return apiFuncResult{retExemplars, nil, nil, nil}
 }
 
 func returnAPIError(err error) *apiError {

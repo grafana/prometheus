@@ -14,6 +14,7 @@
 package tsdb
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -111,16 +112,22 @@ func (q *querier) Select(sortSeries bool, hints *storage.SelectHints, ms ...*lab
 	return NewMergedSeriesSet(ss), ws, nil
 }
 
-func (q *querier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+func (q *querier) Exemplars(exemplarStorage storage.ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
 	var exemplars [][]exemplar.Exemplar
-	ss, err := q.Select(ms...)
+	ss, _, err := q.Select(nil, ms...)
 	if err != nil {
 		return nil, err
 	}
+
+	eq, err := exemplarStorage.Querier(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
 	// ss = ss.(baseChunkSeries)
 	for ss.Next() {
 		hash := ss.At().Labels().Hash()
-		seriesExemplars, err := exemplarStorage.Select(hash)
+		seriesExemplars, err := eq.Select(hash)
 		if err != nil { // failure to find exemplars for a single series in the seriesset shouldn't be fatal
 			// save error for returning?
 			continue
@@ -175,7 +182,7 @@ func (q *verticalQuerier) sel(sortSeries bool, hints *storage.SelectHints, qs []
 }
 
 // Exemplars is a no-op for verticalQuerier.
-func (q *verticalQuerier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+func (q *verticalQuerier) Exemplars(exemplarStorage storage.ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
 	return nil, nil
 }
 
@@ -248,16 +255,22 @@ func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ..
 	}, nil, nil
 }
 
-func (q *blockQuerier) Exemplars(exemplarStorage ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
+func (q *blockQuerier) Exemplars(exemplarStorage storage.ExemplarStorage, ms ...*labels.Matcher) ([][]exemplar.Exemplar, error) {
 	var exemplars [][]exemplar.Exemplar
-	ss, err := q.Select(ms...)
+	ss, _, err := q.Select(nil, ms...)
 	if err != nil {
 		return nil, err
 	}
+
+	eq, err := exemplarStorage.Querier(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
 	// ss = ss.(baseChunkSeries)
 	for ss.Next() {
 		hash := ss.At().Labels().Hash()
-		seriesExemplars, err := exemplarStorage.Select(hash)
+		seriesExemplars, err := eq.Select(hash)
 		if err != nil { // failure to find exemplars for a single series in the seriesset shouldn't be fatal
 			// save error for returning?
 			continue
