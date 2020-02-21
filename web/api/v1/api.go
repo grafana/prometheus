@@ -464,12 +464,20 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 		// return an error
 	}
 
-	ms, err := promql.ParseMetricSelector(r.FormValue("query"))
+	expr, err := promql.ParseExpr(r.FormValue("query"))
 	if err != nil {
 		// return err
 	}
 
-	ss, _, err := q.Select(nil, ms...)
+	selectors, err := promql.ExtractSelectors(expr)
+	if err != nil {
+		// return err
+	}
+	if len(selectors) < 1 {
+		// return err
+	}
+
+	ss, _, err := q.Select(nil, selectors[0]...)
 	if err != nil {
 		// return err
 	}
