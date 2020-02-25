@@ -292,6 +292,7 @@ func TestEndpoints(t *testing.T) {
 			test_metric1{foo="boo"} 1+0x100
 			test_metric2{foo="boo"} 1+0x100
 			test_metric3{foo="qwerty", cluster="abc"} 1+0x100
+			test_metric4{foo="asdf", cluster="abc"} 1+0x97
 	`)
 	testutil.Ok(t, err)
 	defer suite.Close()
@@ -1437,7 +1438,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 		{
 			endpoint: api.queryExemplars,
 			query: url.Values{
-				"query": []string{`{cluster="abc"}`},
+				"query": []string{`test_metric3{cluster="abc"} - test_metric4{cluster="abc"}`},
 			},
 			exemplars: []exemplarData{
 				exemplarData{
@@ -1449,6 +1450,15 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 						},
 					},
 				},
+				exemplarData{
+					labels.FromStrings("__name__", "test_metric4", "foo", "asdf", "cluster", "abc"),
+					[]exemplar.Exemplar{
+						exemplar.Exemplar{
+							Labels: labels.FromStrings("id", "lul"),
+							Value:  10,
+						},
+					},
+				},
 			},
 			response: []exemplarData{
 				exemplarData{
@@ -1456,6 +1466,15 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					[]exemplar.Exemplar{
 						exemplar.Exemplar{
 							Labels: labels.FromStrings("id", "abc"),
+							Value:  10,
+						},
+					},
+				},
+				exemplarData{
+					labels.FromStrings("__name__", "test_metric4", "foo", "asdf", "cluster", "abc"),
+					[]exemplar.Exemplar{
+						exemplar.Exemplar{
+							Labels: labels.FromStrings("id", "lul"),
 							Value:  10,
 						},
 					},
@@ -1475,6 +1494,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					"test_metric1",
 					"test_metric2",
 					"test_metric3",
+					"test_metric4",
 				},
 			},
 			{
@@ -1483,6 +1503,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					"name": "foo",
 				},
 				response: []string{
+					"asdf",
 					"bar",
 					"boo",
 					"qwerty",
@@ -1545,7 +1566,9 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 
 			es.Reset()
 			for _, te := range test.exemplars {
-				es.Appender().AddExemplar(te.seriesLabels, 1234, te.exemplars[0])
+				for _, e := range te.exemplars {
+					es.Appender().AddExemplar(te.seriesLabels, 1234, e)
+				}
 			}
 
 			res := test.endpoint(req.WithContext(ctx))

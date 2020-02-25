@@ -477,23 +477,34 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 		// return err
 	}
 
-	ss, _, err := q.Select(nil, selectors[0]...)
-	if err != nil {
-		// return err
+	var retExemplars []exemplarData
+
+	for _, selectorArr := range selectors {
+		ss, _, err := q.Select(nil, selectorArr...)
+		if err != nil {
+			// return err
+		}
+
+		eq, err := api.ExemplarQueryable.Querier(context.Background())
+		if err != nil {
+			// return err
+		}
+		for {
+			ok := ss.Next()
+			if !ok {
+				break
+			}
+			res, err := eq.Select(ss.At().Labels().Hash())
+			if err != nil {
+				// return error
+			}
+			if len(res) == 0 {
+				continue
+			}
+			retExemplars = append(retExemplars, exemplarData{seriesLabels: ss.At().Labels(), exemplars: res})
+		}
 	}
 
-	eq, err := api.ExemplarQueryable.Querier(context.Background())
-	if err != nil {
-		// return err
-	}
-	var retExemplars []exemplarData
-	for ss.Next() {
-		res, err := eq.Select(ss.At().Labels().Hash())
-		if err != nil {
-			// return error
-		}
-		retExemplars = append(retExemplars, exemplarData{seriesLabels: ss.At().Labels(), exemplars: res})
-	}
 	return apiFuncResult{retExemplars, nil, nil, nil}
 }
 
