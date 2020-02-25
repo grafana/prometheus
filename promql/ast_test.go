@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/pkg/labels"
-	"github.com/stretchr/testify/require"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestExtractSelectors(t *testing.T) {
@@ -39,18 +39,18 @@ func TestExtractSelectors(t *testing.T) {
 		},
 	} {
 		expr, err := ParseExpr(tc.input)
-		require.NoError(t, err)
+		testutil.Ok(t, err)
 
 		var expected [][]*labels.Matcher
 		for _, s := range tc.expected {
 			selector, err := ParseMetricSelector(s)
-			require.NoError(t, err)
+			testutil.Ok(t, err)
 
 			expected = append(expected, selector)
 		}
 
 		actual, err := ExtractSelectors(expr)
-		require.NoError(t, err)
-		require.Equal(t, expected, actual)
+		testutil.Ok(t, err)
+		testutil.Equals(t, expected, actual)
 	}
 }
