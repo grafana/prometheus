@@ -19,10 +19,10 @@ import (
 
 // Exemplar is additional information associated with a time series.
 type Exemplar struct {
-	Labels labels.Labels
-	Value  float64
-	Ts     int64
-	HasTs  bool
+	Labels labels.Labels `json:"labels"`
+	Value  float64       `json:"value"`
+	Ts     int64         `json:"timestamp"`
+	HasTs  bool          `json:"hasTimestamp"`
 }
 
 // Equals compares if the exemplar e is the same as e2.

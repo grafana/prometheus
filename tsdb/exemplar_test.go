@@ -28,6 +28,8 @@ func TestAddExemplar(t *testing.T) {
 
 	es.AddExemplar(l, 0, e)
 	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list[0], e), "exemplar was not stored correctly")
+
+	es.AddExemplar(l, 0, e)
 }
 
 func TestAddExtraExemplar(t *testing.T) {

@@ -38,6 +38,7 @@ import (
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/intern"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/pool"
@@ -190,7 +191,7 @@ const maxAheadTime = 10 * time.Minute
 
 type labelsMutator func(labels.Labels) labels.Labels
 
-func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, jitterSeed uint64, logger log.Logger) (*scrapePool, error) {
+func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, exemplarApp storage.ExemplarAppender, jitterSeed uint64, logger log.Logger) (*scrapePool, error) {
 	targetScrapePools.Inc()
 	if logger == nil {
 		logger = log.NewNopLogger()
@@ -232,6 +233,7 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, jitterSeed 
 			},
 			func(l labels.Labels) labels.Labels { return mutateReportSampleLabels(l, opts.target) },
 			func() storage.Appender { return appender(app.Appender(), opts.limit) },
+			exemplarApp,
 			cache,
 			jitterSeed,
 			opts.honorTimestamps,
@@ -615,6 +617,7 @@ type scrapeLoop struct {
 	honorTimestamps bool
 
 	appender            func() storage.Appender
+	exemplarAppender    storage.ExemplarAppender
 	sampleMutator       labelsMutator
 	reportSampleMutator labelsMutator
 
@@ -878,6 +881,7 @@ func newScrapeLoop(ctx context.Context,
 	sampleMutator labelsMutator,
 	reportSampleMutator labelsMutator,
 	appender func() storage.Appender,
+	exemplarAppender storage.ExemplarAppender,
 	cache *scrapeCache,
 	jitterSeed uint64,
 	honorTimestamps bool,
@@ -896,6 +900,7 @@ func newScrapeLoop(ctx context.Context,
 		buffers:             buffers,
 		cache:               cache,
 		appender:            appender,
+		exemplarAppender:    exemplarAppender,
 		sampleMutator:       sampleMutator,
 		reportSampleMutator: reportSampleMutator,
 		stopped:             make(chan struct{}),
@@ -1073,11 +1078,13 @@ func (sl *scrapeLoop) getCache() *scrapeCache {
 func (sl *scrapeLoop) append(b []byte, contentType string, ts time.Time) (total, added, seriesAdded int, err error) {
 	var (
 		app            = sl.appender()
+		exemplarApp    = sl.exemplarAppender
 		p              = textparse.New(b, contentType)
 		defTime        = timestamp.FromTime(ts)
 		numOutOfOrder  = 0
 		numDuplicates  = 0
 		numOutOfBounds = 0
+		e              exemplar.Exemplar
 	)
 	var sampleLimitErr error
 
@@ -1138,6 +1145,17 @@ loop:
 				if tp == nil {
 					sl.cache.trackStaleness(ce.hash, ce.lset)
 				}
+				// todo: This smells funny.
+				if hasExemplar := p.Exemplar(&e); hasExemplar {
+					if err := exemplarApp.AddExemplar(ce.lset, t, e); err != nil {
+						if err == storage.ErrDuplicateExemplar {
+							level.Debug(sl.l).Log("msg", "Duplicate exemplar", "seriesLabels", ce.lset, "exemplar", e)
+						} else {
+							level.Debug(sl.l).Log("msg", "unexpected error", "error", err, "seriesLabels", ce.lset, "exemplar", e)
+						}
+					}
+				}
+			// In theory this should never happen.
 			case storage.ErrNotFound:
 				ok = false
 			case storage.ErrOutOfOrderSample:
@@ -1192,6 +1210,16 @@ loop:
 			ref, err = app.Add(lset, t, v)
 			switch errors.Cause(err) {
 			case nil:
+				// todo: This smells funny.
+				if hasExemplar := p.Exemplar(&e); hasExemplar {
+					if err := exemplarApp.AddExemplar(lset, t, e); err != nil {
+						if err == storage.ErrDuplicateExemplar {
+							level.Debug(sl.l).Log("msg", "Duplicate exemplar", "seriesLabels", lset, "exemplar", e)
+						} else {
+							level.Debug(sl.l).Log("msg", "unexpected error", "error", err, "seriesLabels", lset, "exemplar", e)
+						}
+					}
+				}
 			case storage.ErrOutOfOrderSample:
 				err = nil
 				numOutOfOrder++

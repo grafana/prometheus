@@ -172,14 +172,15 @@ type Handler struct {
 	gatherer prometheus.Gatherer
 	metrics  *metrics
 
-	scrapeManager *scrape.Manager
-	ruleManager   *rules.Manager
-	queryEngine   *promql.Engine
-	lookbackDelta time.Duration
-	context       context.Context
-	tsdb          func() *tsdb.DB
-	storage       storage.Storage
-	notifier      *notifier.Manager
+	scrapeManager   *scrape.Manager
+	ruleManager     *rules.Manager
+	queryEngine     *promql.Engine
+	lookbackDelta   time.Duration
+	context         context.Context
+	tsdb            func() *tsdb.DB
+	storage         storage.Storage
+	exemplarStorage storage.ExemplarStorage
+	notifier        *notifier.Manager
 
 	apiV1 *api_v1.API
 
@@ -216,6 +217,7 @@ type Options struct {
 	TSDBRetentionDuration model.Duration
 	TSDBMaxBytes          units.Base2Bytes
 	Storage               storage.Storage
+	ExemplarStorage       storage.ExemplarStorage
 	QueryEngine           *promql.Engine
 	LookbackDelta         time.Duration
 	ScrapeManager         *scrape.Manager
@@ -276,21 +278,22 @@ func New(logger log.Logger, o *Options) *Handler {
 		cwd:         cwd,
 		flagsMap:    o.Flags,
 
-		context:       o.Context,
-		scrapeManager: o.ScrapeManager,
-		ruleManager:   o.RuleManager,
-		queryEngine:   o.QueryEngine,
-		lookbackDelta: o.LookbackDelta,
-		tsdb:          o.TSDB,
-		storage:       o.Storage,
-		notifier:      o.Notifier,
+		context:         o.Context,
+		scrapeManager:   o.ScrapeManager,
+		ruleManager:     o.RuleManager,
+		queryEngine:     o.QueryEngine,
+		lookbackDelta:   o.LookbackDelta,
+		tsdb:            o.TSDB,
+		storage:         o.Storage,
+		exemplarStorage: o.ExemplarStorage,
+		notifier:        o.Notifier,
 
 		now: model.Now,
 
 		ready: 0,
 	}
 
-	h.apiV1 = api_v1.NewAPI(h.queryEngine, h.storage, nil, h.scrapeManager, h.notifier,
+	h.apiV1 = api_v1.NewAPI(h.queryEngine, h.storage, h.exemplarStorage, h.scrapeManager, h.notifier,
 		func() config.Config {
 			h.mtx.RLock()
 			defer h.mtx.RUnlock()

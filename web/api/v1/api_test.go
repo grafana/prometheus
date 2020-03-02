@@ -1566,8 +1566,8 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 
 			es.Reset()
 			for _, te := range test.exemplars {
-				for _, e := range te.exemplars {
-					es.Appender().AddExemplar(te.seriesLabels, 1234, e)
+				for _, e := range te.Exemplars {
+					es.Appender().AddExemplar(te.SeriesLabels, 1234, e)
 				}
 			}
 

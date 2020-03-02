@@ -35,12 +35,14 @@ import (
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/relabel"
 	"github.com/prometheus/prometheus/pkg/textparse"
 	"github.com/prometheus/prometheus/pkg/timestamp"
 	"github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/util/teststorage"
 	"github.com/prometheus/prometheus/util/testutil"
 )
@@ -379,7 +381,7 @@ func TestScrapeLoopStopBeforeRun(t *testing.T) {
 		nil, nil,
 		nopMutator,
 		nopMutator,
-		nil, nil, 0,
+		nil, nil, nil, 0,
 		true,
 	)
 
@@ -442,6 +444,7 @@ func TestScrapeLoopStop(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -509,6 +512,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nopMutator,
 		app,
 		nil,
+		nil,
 		0,
 		true,
 	)
@@ -555,6 +559,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -605,6 +610,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return nopAppender{} },
+		nil,
 		cache,
 		0,
 		true,
@@ -655,6 +661,7 @@ func TestScrapeLoopSeriesAdded(t *testing.T) {
 		nopMutator,
 		func() storage.Appender { return app },
 		nil,
+		nil,
 		0,
 		true,
 	)
@@ -688,6 +695,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrape(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -742,6 +750,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnParseFailure(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -802,6 +811,7 @@ func TestScrapeLoopCache(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -878,6 +888,7 @@ func TestScrapeLoopCacheMemoryExhaustionProtection(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -985,6 +996,7 @@ func TestScrapeLoopAppend(t *testing.T) {
 			},
 			func() storage.Appender { return app },
 			nil,
+			nil,
 			0,
 			true,
 		)
@@ -1028,6 +1040,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 		},
 		nopMutator,
 		func() storage.Appender { return app },
+		nil,
 		nil,
 		0,
 		true,
@@ -1096,6 +1109,7 @@ func TestScrapeLoop_ChangingMetricString(t *testing.T) {
 		nopMutator,
 		func() storage.Appender { return capp },
 		nil,
+		nil,
 		0,
 		true,
 	)
@@ -1131,6 +1145,7 @@ func TestScrapeLoopAppendStaleness(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return app },
+		nil,
 		nil,
 		0,
 		true,
@@ -1171,6 +1186,7 @@ func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
 		nopMutator,
 		func() storage.Appender { return app },
 		nil,
+		nil,
 		0,
 		true,
 	)
@@ -1192,6 +1208,97 @@ func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
 	testutil.Equals(t, want, app.result, "Appended samples not as expected")
 }
 
+func TestScrapeLoopAppendExemplar(t *testing.T) {
+	type sampleWithExemplar struct {
+		sample
+		e exemplar.Exemplar
+	}
+
+	tests := []struct {
+		title           string
+		scrapeLabels    string
+		discoveryLabels []string
+		expLset         labels.Labels
+		expValue        float64
+		exemplar        exemplar.Exemplar
+	}{
+		// {
+		// 	title:           "Metric without exemplars",
+		// 	scrapeLabels:    "metric_total{n=\"1\"} 0\n# EOF",
+		// 	discoveryLabels: []string{"n", "2"},
+		// 	expLset:         labels.FromStrings("__name__", "metric_total", "exported_n", "1", "n", "2"),
+		// 	expValue:        0,
+		// 	exemplar:        exemplar.Exemplar{},
+		// }, {
+		{
+			title:           "Metric with exemplars",
+			scrapeLabels:    "metric_total{n=\"1\"} 0 # {a=\"abc\"} 1.0\n# EOF",
+			discoveryLabels: []string{"n", "2"},
+			expLset:         labels.FromStrings("__name__", "metric_total", "exported_n", "1", "n", "2"),
+			expValue:        0,
+			exemplar:        exemplar.Exemplar{Labels: labels.FromStrings("a", "abc"), Value: 1},
+		}, {
+			title:           "Metric with exemplars and TS",
+			scrapeLabels:    "metric_total{n=\"1\"} 0 # {a=\"abc\"} 1.0 10000\n# EOF",
+			discoveryLabels: []string{"n", "2"},
+			expLset:         labels.FromStrings("__name__", "metric_total", "exported_n", "1", "n", "2"),
+			expValue:        0,
+			exemplar:        exemplar.Exemplar{Labels: labels.FromStrings("a", "abc"), Value: 1, Ts: 10000000, HasTs: true},
+		},
+	}
+
+	for _, test := range tests {
+		app := &collectResultAppender{}
+		exemplarApp := tsdb.NewInMemExemplarStorage(5)
+
+		discoveryLabels := &Target{
+			labels: labels.FromStrings(test.discoveryLabels...),
+		}
+
+		sl := newScrapeLoop(context.Background(),
+			nil, nil, nil,
+			func(l labels.Labels) labels.Labels {
+				return mutateSampleLabels(l, discoveryLabels, false, nil)
+			},
+			func(l labels.Labels) labels.Labels {
+				return mutateReportSampleLabels(l, discoveryLabels)
+			},
+			func() storage.Appender { return app },
+			exemplarApp,
+			nil,
+			0,
+			true,
+		)
+
+		now := time.Now()
+
+		_, _, _, err := sl.append([]byte(test.scrapeLabels), "application/openmetrics-text", now)
+		testutil.Ok(t, err)
+
+		expected := []sampleWithExemplar{
+			{
+				sample: sample{
+					metric: test.expLset,
+					t:      timestamp.FromTime(now),
+					v:      test.expValue,
+				},
+				e: test.exemplar,
+			},
+		}
+
+		// When the expected value is NaN
+		// DeepEqual will report NaNs as being different,
+		// so replace it with the expected one.
+		// if test.expValue == float64(value.NormalNaN) {
+		// app.result[0].v = expected[0].v
+		// }
+		e, err := exemplarApp.Select(test.expLset.Hash())
+
+		t.Logf("Test:%s", test.title)
+		testutil.Equals(t, expected[0].e, e[0])
+	}
+}
+
 func TestScrapeLoopRunReportsTargetDownOnScrapeError(t *testing.T) {
 	var (
 		scraper  = &testScraper{}
@@ -1206,6 +1313,7 @@ func TestScrapeLoopRunReportsTargetDownOnScrapeError(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -1234,6 +1342,7 @@ func TestScrapeLoopRunReportsTargetDownOnInvalidUTF8(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -1280,6 +1389,7 @@ func TestScrapeLoopAppendGracefullyIfAmendOrOutOfOrderOrOutOfBounds(t *testing.T
 		nopMutator,
 		func() storage.Appender { return app },
 		nil,
+		nil,
 		0,
 		true,
 	)
@@ -1314,6 +1424,7 @@ func TestScrapeLoopOutOfBoundsTimeError(t *testing.T) {
 				maxTime:  timestamp.FromTime(time.Now().Add(10 * time.Minute)),
 			}
 		},
+		nil,
 		nil,
 		0,
 		true,
@@ -1500,7 +1611,7 @@ func TestScrapeLoop_RespectTimestamps(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return capp },
-		nil, 0,
+		nil, nil, 0,
 		true,
 	)
 
@@ -1531,7 +1642,7 @@ func TestScrapeLoop_DiscardTimestamps(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return capp },
-		nil, 0,
+		nil, nil, 0,
 		false,
 	)
 
@@ -1562,6 +1673,7 @@ func TestScrapeLoopDiscardDuplicateLabels(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return app },
+		nil,
 		nil,
 		0,
 		true,
