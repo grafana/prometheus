@@ -143,8 +143,8 @@ type RuntimeInfo struct {
 }
 
 type exemplarData struct {
-	seriesLabels labels.Labels
-	exemplars    []exemplar.Exemplar
+	SeriesLabels labels.Labels       `json:"seriesLabels"`
+	Exemplars    []exemplar.Exemplar `json:"exemplars"`
 }
 
 type response struct {
@@ -466,15 +466,15 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 
 	expr, err := promql.ParseExpr(r.FormValue("query"))
 	if err != nil {
-		// return err
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 
 	selectors, err := promql.ExtractSelectors(expr)
 	if err != nil {
-		// return err
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 	if len(selectors) < 1 {
-		// return err
+		return apiFuncResult{nil, &apiError{errorBadData, fmt.Errorf("no series found for supplied query: %s", expr)}, nil, nil}
 	}
 
 	var retExemplars []exemplarData
@@ -482,12 +482,12 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 	for _, selectorArr := range selectors {
 		ss, _, err := q.Select(nil, selectorArr...)
 		if err != nil {
-			// return err
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 		}
 
 		eq, err := api.ExemplarQueryable.Querier(context.Background())
 		if err != nil {
-			// return err
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 		}
 		for {
 			ok := ss.Next()
@@ -496,12 +496,12 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 			}
 			res, err := eq.Select(ss.At().Labels().Hash())
 			if err != nil {
-				// return error
+				return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 			}
 			if len(res) == 0 {
 				continue
 			}
-			retExemplars = append(retExemplars, exemplarData{seriesLabels: ss.At().Labels(), exemplars: res})
+			retExemplars = append(retExemplars, exemplarData{SeriesLabels: ss.At().Labels(), Exemplars: res})
 		}
 	}
 

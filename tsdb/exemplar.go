@@ -26,8 +26,11 @@ func newExemplarList(len int) *exemplarList {
 	}
 }
 
-func (el *exemplarList) add(e exemplar.Exemplar) {
+func (el *exemplarList) add(e exemplar.Exemplar) error {
 	// TODO: Don't add an exemplar if we already have it
+	if len(el.list) != 0 && el.list[el.next-1].Equals(e) {
+		return storage.ErrDuplicateExemplar
+	}
 
 	if len(el.list) < cap(el.list) {
 		el.list = append(el.list, e)
@@ -35,7 +38,7 @@ func (el *exemplarList) add(e exemplar.Exemplar) {
 		if el.next >= cap(el.list) {
 			el.next = 0
 		}
-		return
+		return nil
 	}
 
 	el.list[el.next] = e
@@ -47,6 +50,7 @@ func (el *exemplarList) add(e exemplar.Exemplar) {
 	if el.oldest >= len(el.list) {
 		el.oldest = 0
 	}
+	return nil
 }
 
 func (el *exemplarList) sorted() []exemplar.Exemplar {
@@ -97,8 +101,7 @@ func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar
 	if _, ok := es.exemplars[hash]; !ok {
 		es.exemplars[hash] = newExemplarList(es.len)
 	}
-	es.exemplars[hash].add(e)
-	return nil
+	return es.exemplars[hash].add(e)
 }
 
 // For use in tests, clears the entire exemplar storage
