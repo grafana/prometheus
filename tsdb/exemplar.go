@@ -9,9 +9,10 @@ import (
 )
 
 type exemplarList struct {
-	next   int
-	oldest int
-	list   []exemplar.Exemplar
+	next     int
+	previous int
+	oldest   int
+	list     []exemplar.Exemplar
 }
 
 // implements storage.ExemplarStorage
@@ -28,7 +29,7 @@ func newExemplarList(len int) *exemplarList {
 
 func (el *exemplarList) add(e exemplar.Exemplar) error {
 	// TODO: Don't add an exemplar if we already have it
-	if len(el.list) != 0 && el.list[el.next-1].Equals(e) {
+	if len(el.list) != 0 && el.list[el.previous].Equals(e) {
 		return storage.ErrDuplicateExemplar
 	}
 
@@ -42,6 +43,7 @@ func (el *exemplarList) add(e exemplar.Exemplar) error {
 	}
 
 	el.list[el.next] = e
+	el.previous = el.next
 	el.next++
 	if el.next >= len(el.list) {
 		el.next = 0
@@ -91,7 +93,7 @@ func (es *InMemExemplarStorage) Select(hash uint64) ([]exemplar.Exemplar, error)
 }
 
 func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar.Exemplar) error {
-	// if we're doing time brackets for exemplars, ie 1min, 15min, 30min, 60min etc
+	// todo: if we're doing time brackets for exemplars, ie 1min, 15min, 30min, 60min etc
 	// check if t should bump an existing exemplar out of the storage?
 
 	// Ensure no empty labels have gotten through.
