@@ -135,7 +135,7 @@ func (rm *ReadyScrapeManager) Get() (*Manager, error) {
 }
 
 // NewManager is the Manager constructor
-func NewManager(logger log.Logger, app storage.Appendable, exemplarApp storage.ExemplarAppender) *Manager {
+func NewManager(logger log.Logger, app storage.Appendable, exemplarApp storage.ExemplarAppendable) *Manager {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -158,7 +158,7 @@ func NewManager(logger log.Logger, app storage.Appendable, exemplarApp storage.E
 type Manager struct {
 	logger         log.Logger
 	append         storage.Appendable
-	exemplarAppend storage.ExemplarAppender
+	exemplarAppend storage.ExemplarAppendable
 	graceShut      chan struct{}
 
 	jitterSeed    uint64     // Global jitterSeed seed is used to spread scrape workload across HA setup.

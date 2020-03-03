@@ -191,7 +191,7 @@ const maxAheadTime = 10 * time.Minute
 
 type labelsMutator func(labels.Labels) labels.Labels
 
-func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, exemplarApp storage.ExemplarAppender, jitterSeed uint64, logger log.Logger) (*scrapePool, error) {
+func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, exemplarApp storage.ExemplarAppendable, jitterSeed uint64, logger log.Logger) (*scrapePool, error) {
 	targetScrapePools.Inc()
 	if logger == nil {
 		logger = log.NewNopLogger()
@@ -233,7 +233,7 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, exemplarApp
 			},
 			func(l labels.Labels) labels.Labels { return mutateReportSampleLabels(l, opts.target) },
 			func() storage.Appender { return appender(app.Appender(), opts.limit) },
-			exemplarApp,
+			func() storage.ExemplarAppender { return exemplarApp.Appender() },
 			cache,
 			jitterSeed,
 			opts.honorTimestamps,
@@ -617,7 +617,7 @@ type scrapeLoop struct {
 	honorTimestamps bool
 
 	appender            func() storage.Appender
-	exemplarAppender    storage.ExemplarAppender
+	exemplarAppender    func() storage.ExemplarAppender
 	sampleMutator       labelsMutator
 	reportSampleMutator labelsMutator
 
@@ -881,7 +881,7 @@ func newScrapeLoop(ctx context.Context,
 	sampleMutator labelsMutator,
 	reportSampleMutator labelsMutator,
 	appender func() storage.Appender,
-	exemplarAppender storage.ExemplarAppender,
+	exemplarAppender func() storage.ExemplarAppender,
 	cache *scrapeCache,
 	jitterSeed uint64,
 	honorTimestamps bool,
@@ -1078,7 +1078,7 @@ func (sl *scrapeLoop) getCache() *scrapeCache {
 func (sl *scrapeLoop) append(b []byte, contentType string, ts time.Time) (total, added, seriesAdded int, err error) {
 	var (
 		app            = sl.appender()
-		exemplarApp    = sl.exemplarAppender
+		exemplarApp    = sl.exemplarAppender()
 		p              = textparse.New(b, contentType)
 		defTime        = timestamp.FromTime(ts)
 		numOutOfOrder  = 0
