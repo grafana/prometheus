@@ -458,10 +458,9 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 		defer cancel()
 	}
 
-	// here we would pass the query to something for tsdb.Querier that only returns label matchers
 	q, err := api.Queryable.Querier(ctx, timestamp.FromTime(minTime), timestamp.FromTime(maxTime))
 	if err != nil {
-		// return an error
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 
 	expr, err := promql.ParseExpr(r.FormValue("query"))

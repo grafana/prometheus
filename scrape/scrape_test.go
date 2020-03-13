@@ -1299,13 +1299,7 @@ func TestScrapeLoopAppendExemplar(t *testing.T) {
 			},
 		}
 
-		// When the expected value is NaN
-		// DeepEqual will report NaNs as being different,
-		// so replace it with the expected one.
-		// if test.expValue == float64(value.NormalNaN) {
-		// app.result[0].v = expected[0].v
-		// }
-		e, err := exemplarApp.Select(test.expLset.Hash())
+		e, err := exemplarApp.Select(test.expLset)
 
 		t.Logf("Test:%s", test.title)
 		testutil.Equals(t, expected[0].e, e[0])
