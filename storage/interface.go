@@ -99,7 +99,7 @@ type ExemplarQueryable interface {
 // Querier provides reading access to time series data.
 type ExemplarQuerier interface {
 	// Select returns a set of exemplars that matches the given labels hash.
-	Select(hash uint64) ([]exemplar.Exemplar, error)
+	Select(l labels.Labels) ([]exemplar.Exemplar, error)
 }
 
 // SelectHints specifies hints passed for data selections.
