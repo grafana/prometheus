@@ -27,7 +27,7 @@ func TestAddExemplar(t *testing.T) {
 	}
 
 	es.AddExemplar(l, 0, e)
-	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list[0], e), "exemplar was not stored correctly")
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list[0], e), "exemplar was not stored correctly")
 
 	es.AddExemplar(l, 0, e)
 }
@@ -104,7 +104,7 @@ func TestAddExtraExemplar(t *testing.T) {
 	for _, e := range exemplars {
 		es.AddExemplar(l, 0, e)
 	}
-	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list[0], exemplars[5]), "exemplar was not stored correctly")
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list[0], exemplars[5]), "exemplar was not stored correctly")
 }
 
 func TestSelectExemplar(t *testing.T) {
@@ -125,12 +125,12 @@ func TestSelectExemplar(t *testing.T) {
 	}
 
 	es.AddExemplar(l, 0, e)
-	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list[0], e), "exemplar was not stored correctly")
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list[0], e), "exemplar was not stored correctly")
 
-	exemplars, err := es.Select(l.Hash())
+	exemplars, err := es.Select(l)
 	testutil.Ok(t, err)
 
-	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list, exemplars), "select did not return all exemplars")
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list, exemplars), "select did not return all exemplars")
 }
 
 func TestSelectExemplarOrdering(t *testing.T) {
@@ -205,9 +205,9 @@ func TestSelectExemplarOrdering(t *testing.T) {
 	for _, e := range exemplars {
 		es.AddExemplar(l, 0, e)
 	}
-	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.Hash()].list[0], exemplars[5]), "exemplar was not stored correctly")
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list[0], exemplars[5]), "exemplar was not stored correctly")
 
-	ret, err := es.Select(l.Hash())
+	ret, err := es.Select(l)
 	testutil.Ok(t, err)
 
 	testutil.Assert(t, reflect.DeepEqual(exemplars[1:], ret), "select did not return all exemplars")

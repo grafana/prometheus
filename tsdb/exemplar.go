@@ -17,7 +17,7 @@ type exemplarList struct {
 
 // implements storage.ExemplarStorage
 type InMemExemplarStorage struct {
-	exemplars map[uint64]*exemplarList
+	exemplars map[string]*exemplarList
 	len       int
 }
 
@@ -70,7 +70,7 @@ func (el *exemplarList) sorted() []exemplar.Exemplar {
 // NewExemplarStorage creates new in-memory storage for exemplars.
 func NewInMemExemplarStorage(len int) *InMemExemplarStorage {
 	return &InMemExemplarStorage{
-		exemplars: make(map[uint64]*exemplarList),
+		exemplars: make(map[string]*exemplarList),
 		len:       len,
 	}
 }
@@ -84,12 +84,12 @@ func (e *InMemExemplarStorage) Querier(ctx context.Context) (storage.ExemplarQue
 	return e, nil
 }
 
-// Select returns exemplars for a given series labels hash.
-func (es *InMemExemplarStorage) Select(hash uint64) ([]exemplar.Exemplar, error) {
-	if _, ok := es.exemplars[hash]; !ok {
+// Select returns exemplars for a given set of series labels hash.
+func (es *InMemExemplarStorage) Select(l labels.Labels) ([]exemplar.Exemplar, error) {
+	if _, ok := es.exemplars[l.String()]; !ok {
 		return nil, nil
 	}
-	return es.exemplars[hash].sorted(), nil
+	return es.exemplars[l.String()].sorted(), nil
 }
 
 func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar.Exemplar) error {
@@ -98,15 +98,14 @@ func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar
 
 	// Ensure no empty labels have gotten through.
 	l = l.WithoutEmpty()
-	hash := l.Hash()
 
-	if _, ok := es.exemplars[hash]; !ok {
-		es.exemplars[hash] = newExemplarList(es.len)
+	if _, ok := es.exemplars[l.String()]; !ok {
+		es.exemplars[l.String()] = newExemplarList(es.len)
 	}
-	return es.exemplars[hash].add(e)
+	return es.exemplars[l.String()].add(e)
 }
 
 // For use in tests, clears the entire exemplar storage
 func (es *InMemExemplarStorage) Reset() {
-	es.exemplars = make(map[uint64]*exemplarList)
+	es.exemplars = make(map[string]*exemplarList)
 }
