@@ -1,7 +1,21 @@
+// Copyright 2020 The Prometheus Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package tsdb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
@@ -93,6 +107,7 @@ func (es *InMemExemplarStorage) Select(l labels.Labels) ([]exemplar.Exemplar, er
 }
 
 func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar.Exemplar) error {
+	fmt.Println("adding exemplar for labels: ", l)
 	// todo: if we're doing time brackets for exemplars, ie 1min, 15min, 30min, 60min etc
 	// check if t should bump an existing exemplar out of the storage?
 
