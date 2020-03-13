@@ -494,7 +494,7 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 			if !ok {
 				break
 			}
-			res, err := eq.Select(ss.At().Labels().Hash())
+			res, err := eq.Select(ss.At().Labels())
 			if err != nil {
 				return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 			}
