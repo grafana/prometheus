@@ -116,6 +116,7 @@ func main() {
 		queryConcurrency    int
 		queryMaxSamples     int
 		RemoteFlushDeadline model.Duration
+		ExemplarsLimit      int
 
 		prometheusURL   string
 		corsRegexString string
@@ -223,6 +224,9 @@ func main() {
 
 	a.Flag("storage.remote.read-max-bytes-in-frame", "Maximum number of bytes in a single frame for streaming remote read response types before marshalling. Note that client might have limit on frame size as well. 1MB as recommended by protobuf by default.").
 		Default("1048576").IntVar(&cfg.web.RemoteReadBytesInFrame)
+
+	a.Flag("storage.exemplars.exemplars-per-series-limit", "Maximum number of exemplars to store in in-memory exemplar storage per series.").
+		Default("10").IntVar(&cfg.ExemplarsLimit)
 
 	a.Flag("rules.alert.for-outage-tolerance", "Max time to tolerate prometheus outage for restoring \"for\" state of alert.").
 		Default("1h").SetValue(&cfg.outageTolerance)
@@ -341,7 +345,7 @@ func main() {
 		scraper         = &scrape.ReadyScrapeManager{}
 		remoteStorage   = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
 		fanoutStorage   = storage.NewFanout(logger, localStorage, remoteStorage)
-		exemplarStorage = tsdb.NewInMemExemplarStorage(10)
+		exemplarStorage = tsdb.NewInMemExemplarStorage(cfg.ExemplarsLimit)
 	)
 
 	var (
