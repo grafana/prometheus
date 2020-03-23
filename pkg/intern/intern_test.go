@@ -16,7 +16,7 @@
 //
 // Copyright (c) 2014 The strutil Authors. All rights reserved.
 
-package remote
+package intern
 
 import (
 	"fmt"
@@ -28,8 +28,9 @@ import (
 )
 
 func TestIntern(t *testing.T) {
+	interner := New(nil).(*pool)
 	testString := "TestIntern"
-	interner.intern(testString)
+	interner.Intern(testString)
 	interned, ok := interner.pool[testString]
 
 	testutil.Equals(t, true, ok)
@@ -37,15 +38,16 @@ func TestIntern(t *testing.T) {
 }
 
 func TestIntern_MultiRef(t *testing.T) {
+	interner := New(nil).(*pool)
 	testString := "TestIntern_MultiRef"
 
-	interner.intern(testString)
+	interner.Intern(testString)
 	interned, ok := interner.pool[testString]
 
 	testutil.Equals(t, true, ok)
 	testutil.Assert(t, interned.refs == 1, fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs))
 
-	interner.intern(testString)
+	interner.Intern(testString)
 	interned, ok = interner.pool[testString]
 
 	testutil.Equals(t, true, ok)
@@ -53,30 +55,32 @@ func TestIntern_MultiRef(t *testing.T) {
 }
 
 func TestIntern_DeleteRef(t *testing.T) {
+	interner := New(nil).(*pool)
 	testString := "TestIntern_DeleteRef"
 
-	interner.intern(testString)
+	interner.Intern(testString)
 	interned, ok := interner.pool[testString]
 
 	testutil.Equals(t, true, ok)
 	testutil.Assert(t, interned.refs == 1, fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs))
 
-	interner.release(testString)
+	interner.Release(testString)
 	_, ok = interner.pool[testString]
 	testutil.Equals(t, false, ok)
 }
 
 func TestIntern_MultiRef_Concurrent(t *testing.T) {
+	interner := New(nil).(*pool)
 	testString := "TestIntern_MultiRef_Concurrent"
 
-	interner.intern(testString)
+	interner.Intern(testString)
 	interned, ok := interner.pool[testString]
 	testutil.Equals(t, true, ok)
 	testutil.Assert(t, interned.refs == 1, fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs))
 
-	go interner.release(testString)
+	go interner.Release(testString)
 
-	interner.intern(testString)
+	interner.Intern(testString)
 
 	time.Sleep(time.Millisecond)
 
