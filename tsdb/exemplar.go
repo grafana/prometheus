@@ -15,7 +15,7 @@ package tsdb
 
 import (
 	"context"
-	"fmt"
+	"sync"
 
 	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
@@ -89,13 +89,13 @@ func NewInMemExemplarStorage(len int) *InMemExemplarStorage {
 	}
 }
 
-func (e *InMemExemplarStorage) Appender() storage.ExemplarAppender {
-	return e
+func (es *InMemExemplarStorage) Appender() storage.ExemplarAppender {
+	return es
 }
 
 // TODO: separate wrapper struct for queries?
-func (e *InMemExemplarStorage) Querier(ctx context.Context) (storage.ExemplarQuerier, error) {
-	return e, nil
+func (es *InMemExemplarStorage) Querier(ctx context.Context) (storage.ExemplarQuerier, error) {
+	return es, nil
 }
 
 // Select returns exemplars for a given set of series labels hash.
@@ -107,7 +107,6 @@ func (es *InMemExemplarStorage) Select(l labels.Labels) ([]exemplar.Exemplar, er
 }
 
 func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar.Exemplar) error {
-	fmt.Println("adding exemplar for labels: ", l)
 	// todo: if we're doing time brackets for exemplars, ie 1min, 15min, 30min, 60min etc
 	// check if t should bump an existing exemplar out of the storage?
 
@@ -123,4 +122,108 @@ func (es *InMemExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar
 // For use in tests, clears the entire exemplar storage
 func (es *InMemExemplarStorage) Reset() {
 	es.exemplars = make(map[string]*exemplarList)
+}
+
+// ***************************************************************
+// single circular buffer for all exemplars
+type CircularExemplarStorage struct {
+	lock      sync.RWMutex
+	index     map[string]int
+	exemplars []circularBufferEntry
+	nextIndex int
+	len       int
+}
+
+type circularBufferEntry struct {
+	exemplar     exemplar.Exemplar
+	seriesLabels labels.Labels // need to store labels so we can double check when querying
+	prev         int           // index of previous exemplar in circular for the same series
+}
+
+// If we assume the average case 95 bytes per exemplar we can fit 5651272 exemplars in
+// 1GB of extra memory, accounting for the fact that this is heap allocated space.
+func NewCircularExemplarStorage(len int) *CircularExemplarStorage {
+	return &CircularExemplarStorage{
+		exemplars: make([]circularBufferEntry, len),
+		index:     make(map[string]int),
+		len:       len,
+	}
+}
+
+func (ce *CircularExemplarStorage) Appender() storage.ExemplarAppender {
+	return ce
+}
+
+// TODO: separate wrapper struct for queries?
+func (ce *CircularExemplarStorage) Querier(ctx context.Context) (storage.ExemplarQuerier, error) {
+	return ce, nil
+}
+
+// Select returns exemplars for a given set of series labels hash.
+func (ce *CircularExemplarStorage) Select(l labels.Labels) ([]exemplar.Exemplar, error) {
+	var (
+		ret []exemplar.Exemplar
+		idx int
+		ok  bool
+	)
+
+	ce.lock.RLock()
+	defer ce.lock.RUnlock()
+
+	if idx, ok = ce.index[l.String()]; !ok {
+		return nil, nil
+	}
+	ret = append(ret, ce.exemplars[idx].exemplar)
+	oldestTS := ce.exemplars[idx].exemplar.Ts
+
+	for {
+		idx = ce.exemplars[idx].prev
+		if idx == -1 || ce.exemplars[idx].seriesLabels.Hash() != l.Hash() {
+			break
+		}
+		// This line is needed to avoid an infinite loop, consider redesign of buffer entry struct.
+		if ce.exemplars[idx].exemplar.Ts > oldestTS {
+			break
+		}
+		oldestTS = ce.exemplars[idx].exemplar.Ts
+		// Prepend since this exemplar came before the last one we appeneded chronologically.
+		ret = append([]exemplar.Exemplar{ce.exemplars[idx].exemplar}, ret...)
+	}
+	return ret, nil
+}
+
+func (ce *CircularExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemplar.Exemplar) error {
+	ce.lock.RLock()
+	idx, ok := ce.index[l.String()]
+	ce.lock.RUnlock()
+
+	ce.lock.Lock()
+	defer ce.lock.Unlock()
+
+	if ok {
+		// Check for duplicate vs last stored exemplar for this series.
+		if ce.exemplars[idx].exemplar.Equals(e) {
+			return storage.ErrDuplicateExemplar
+		}
+		ce.exemplars[ce.nextIndex] = circularBufferEntry{exemplar: e, seriesLabels: l, prev: idx}
+		ce.index[l.String()] = ce.nextIndex
+		ce.nextIndex++
+		if ce.nextIndex >= cap(ce.exemplars) {
+			ce.nextIndex = 0
+		}
+		return nil
+	}
+	ce.exemplars[ce.nextIndex] = circularBufferEntry{exemplar: e, seriesLabels: l, prev: -1}
+	ce.index[l.String()] = ce.nextIndex
+	ce.nextIndex++
+	if ce.nextIndex >= cap(ce.exemplars) {
+		ce.nextIndex = 0
+	}
+	return nil
+}
+
+// For use in tests, clears the entire exemplar storage
+func (ce *CircularExemplarStorage) Reset() {
+	ce.exemplars = make([]circularBufferEntry, ce.len)
+	ce.index = make(map[string]int)
 }
