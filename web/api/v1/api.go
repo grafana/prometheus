@@ -463,12 +463,12 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 
-	expr, err := promql.ParseExpr(r.FormValue("query"))
+	expr, err := parser.ParseExpr(r.FormValue("query"))
 	if err != nil {
 		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
 
-	selectors, err := promql.ExtractSelectors(expr)
+	selectors, err := parser.ExtractSelectors(expr)
 	if err != nil {
 		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 	}
@@ -479,7 +479,7 @@ func (api *API) queryExemplars(r *http.Request) apiFuncResult {
 	var retExemplars []exemplarData
 
 	for _, selectorArr := range selectors {
-		ss, _, err := q.Select(nil, selectorArr...)
+		ss, _, err := q.Select(false, nil, selectorArr...)
 		if err != nil {
 			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
 		}
