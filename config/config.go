@@ -144,6 +144,7 @@ type Config struct {
 
 	RemoteWriteConfigs []*RemoteWriteConfig `yaml:"remote_write,omitempty"`
 	RemoteReadConfigs  []*RemoteReadConfig  `yaml:"remote_read,omitempty"`
+	ExemplarConfig     *ExemplarConfig      `yaml:"exemplar_configs,omitempty"`
 
 	// original is the input from which the config was parsed.
 	original string
@@ -449,6 +450,23 @@ func (c *ScrapeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		tg.Source = fmt.Sprintf("%d", i)
 	}
 
+	return nil
+}
+
+// ScrapeConfig configures aspects of the exemplar storage for Prometheus.
+type ExemplarConfig struct {
+	// List of relabel configurations. Note that these are applied to exemplars
+	// after any scrape relabel rules, meaning the sample must be stored by Prometheus
+	// for the exemplar to be relabelled/stored.
+	RelabelConfigs []*relabel.Config `yaml:"relabel_configs,omitempty"`
+}
+
+func (c *ExemplarConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	for _, rlcfg := range c.RelabelConfigs {
+		if rlcfg == nil {
+			return errors.New("empty or null relabeling rule in remote write config")
+		}
+	}
 	return nil
 }
 
