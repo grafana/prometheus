@@ -1731,6 +1731,7 @@ func TestScrapeLoopDiscardUnnamedMetrics(t *testing.T) {
 		},
 		nopMutator,
 		func() storage.Appender { return app },
+		func() storage.ExemplarAppender { return nopExemplarAppender{} },
 		nil,
 		0,
 		true,
@@ -1948,6 +1949,7 @@ func TestScrapeAddFast(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		func() storage.Appender { return app },
+		func() storage.ExemplarAppender { return nopExemplarAppender{} },
 		nil,
 		0,
 		true,
@@ -1969,14 +1971,16 @@ func TestScrapeAddFast(t *testing.T) {
 
 func TestReuseCacheRace(t *testing.T) {
 	var (
-		app = &nopAppendable{}
-		cfg = &config.ScrapeConfig{
+		app  = &nopAppendable{}
+		eApp = &nopExemplarAppendable{}
+		cfg  = &config.ScrapeConfig{
 			JobName:        "Prometheus",
 			ScrapeTimeout:  model.Duration(5 * time.Second),
 			ScrapeInterval: model.Duration(5 * time.Second),
 			MetricsPath:    "/metrics",
 		}
-		sp, _ = newScrapePool(cfg, app, 0, nil)
+
+		sp, _ = newScrapePool(cfg, app, eApp, 0, nil)
 		t1    = &Target{
 			discoveredLabels: labels.Labels{
 				labels.Label{
