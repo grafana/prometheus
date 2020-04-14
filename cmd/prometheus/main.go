@@ -102,21 +102,22 @@ func main() {
 	cfg := struct {
 		configFile string
 
-		localStoragePath    string
-		notifier            notifier.Options
-		notifierTimeout     model.Duration
-		forGracePeriod      model.Duration
-		outageTolerance     model.Duration
-		resendDelay         model.Duration
-		web                 web.Options
-		tsdb                tsdbOptions
-		lookbackDelta       model.Duration
-		webTimeout          model.Duration
-		queryTimeout        model.Duration
-		queryConcurrency    int
-		queryMaxSamples     int
-		RemoteFlushDeadline model.Duration
-		ExemplarsLimit      int
+		localStoragePath       string
+		notifier               notifier.Options
+		notifierTimeout        model.Duration
+		forGracePeriod         model.Duration
+		outageTolerance        model.Duration
+		resendDelay            model.Duration
+		web                    web.Options
+		tsdb                   tsdbOptions
+		lookbackDelta          model.Duration
+		webTimeout             model.Duration
+		queryTimeout           model.Duration
+		queryConcurrency       int
+		queryMaxSamples        int
+		RemoteFlushDeadline    model.Duration
+		ExemplarsLimit         int
+		CircularExemplarsLimit int
 
 		prometheusURL   string
 		corsRegexString string
@@ -227,6 +228,9 @@ func main() {
 
 	a.Flag("storage.exemplars.exemplars-per-series-limit", "Maximum number of exemplars to store in in-memory exemplar storage per series.").
 		Default("10").IntVar(&cfg.ExemplarsLimit)
+
+	a.Flag("storage.exemplars.exemplars-circular-limit", "Maximum number of exemplars to store in circular exemplar storage total.").
+		Default("1000000").IntVar(&cfg.CircularExemplarsLimit)
 
 	a.Flag("rules.alert.for-outage-tolerance", "Max time to tolerate prometheus outage for restoring \"for\" state of alert.").
 		Default("1h").SetValue(&cfg.outageTolerance)
@@ -345,7 +349,7 @@ func main() {
 		scraper         = &scrape.ReadyScrapeManager{}
 		remoteStorage   = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
 		fanoutStorage   = storage.NewFanout(logger, localStorage, remoteStorage)
-		exemplarStorage = tsdb.NewInMemExemplarStorage(cfg.ExemplarsLimit)
+		exemplarStorage = tsdb.NewCircularExemplarStorage(cfg.CircularExemplarsLimit)
 	)
 
 	var (
@@ -433,6 +437,7 @@ func main() {
 
 	reloaders := []func(cfg *config.Config) error{
 		remoteStorage.ApplyConfig,
+		exemplarStorage.ApplyConfig,
 		webHandler.ApplyConfig,
 		func(cfg *config.Config) error {
 			if cfg.GlobalConfig.QueryLogFile == "" {

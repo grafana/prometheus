@@ -17,8 +17,10 @@ import (
 	"context"
 	"sync"
 
+	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/relabel"
 	"github.com/prometheus/prometheus/storage"
 )
 
@@ -127,11 +129,13 @@ func (es *InMemExemplarStorage) Reset() {
 // ***************************************************************
 // single circular buffer for all exemplars
 type CircularExemplarStorage struct {
-	lock      sync.RWMutex
-	index     map[string]int
-	exemplars []circularBufferEntry
-	nextIndex int
-	len       int
+	lock           sync.RWMutex
+	index          map[string]int
+	exemplars      []circularBufferEntry
+	nextIndex      int
+	len            int
+	relabelMtx     sync.RWMutex
+	relabelConfigs []*relabel.Config
 }
 
 type circularBufferEntry struct {
@@ -148,6 +152,13 @@ func NewCircularExemplarStorage(len int) *CircularExemplarStorage {
 		index:     make(map[string]int),
 		len:       len,
 	}
+}
+
+func (ce *CircularExemplarStorage) ApplyConfig(conf *config.Config) error {
+	ce.relabelMtx.Lock()
+	defer ce.relabelMtx.Unlock()
+	ce.relabelConfigs = conf.ExemplarConfig.RelabelConfigs
+	return nil
 }
 
 func (ce *CircularExemplarStorage) Appender() storage.ExemplarAppender {
@@ -199,6 +210,14 @@ func (ce *CircularExemplarStorage) AddExemplar(l labels.Labels, t int64, e exemp
 
 	ce.lock.Lock()
 	defer ce.lock.Unlock()
+
+	ce.relabelMtx.RLock()
+	ce.relabelMtx.RUnlock()
+
+	lbls := relabel.Process(l, ce.relabelConfigs...)
+	if len(lbls) == 0 {
+		return nil
+	}
 
 	if ok {
 		// Check for duplicate vs last stored exemplar for this series.

@@ -17,12 +17,37 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/relabel"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestAddExemplar(t *testing.T) {
+	es := NewInMemExemplarStorage(5)
+
+	l := labels.Labels{
+		{Name: "service", Value: "asdf"},
+	}
+	e := exemplar.Exemplar{
+		Labels: labels.Labels{
+			labels.Label{
+				Name:  "traceID",
+				Value: "qwerty",
+			},
+		},
+		Value: 0.1,
+		HasTs: false,
+	}
+
+	es.AddExemplar(l, 0, e)
+	testutil.Assert(t, reflect.DeepEqual(es.exemplars[l.String()].list[0], e), "exemplar was not stored correctly")
+
+	es.AddExemplar(l, 0, e)
+}
+
+func TestAddExemplarRelabel(t *testing.T) {
 	es := NewInMemExemplarStorage(5)
 
 	l := labels.Labels{
@@ -264,6 +289,41 @@ func TestAddExemplar_Circ(t *testing.T) {
 	err = es.AddExemplar(l, 0, e2)
 	testutil.Ok(t, err)
 	testutil.Equals(t, es.index[l.String()], 1, "exemplar was not stored correctly")
+}
+
+func TestAddExemplar_CircRelabel(t *testing.T) {
+	es := NewCircularExemplarStorage(2)
+	es.relabelConfigs = []*relabel.Config{
+		{
+			SourceLabels: model.LabelNames{"endpoint"},
+			// Separator:    ";",
+			Regex: relabel.MustNewRegexp("users.*"),
+			// Replacement:  "$1",
+			Action: relabel.Drop,
+		},
+	}
+	l := labels.Labels{
+		{Name: "service", Value: "asdf"},
+		{Name: "endpoint", Value: "users"},
+	}
+	e := exemplar.Exemplar{
+		Labels: labels.Labels{
+			labels.Label{
+				Name:  "traceID",
+				Value: "qwerty",
+			},
+		},
+		Value: 0.1,
+		HasTs: false,
+	}
+
+	err := es.AddExemplar(l, 0, e)
+	testutil.Ok(t, err)
+
+	el, err := es.Select(l)
+	testutil.Ok(t, err)
+	testutil.Assert(t, len(el) == 0, "an exemplar was stored for %s but the relabel rule should have dropped it: %d", l.String(), len(el))
+	// testutil.Equals(t, es.index[l.String()], 1, "exemplar was not stored correctly, had %d exemplars", len(es.index[l.String()]))
 }
 
 func TestAddExemplar_CircOverwrite(t *testing.T) {
