@@ -102,20 +102,22 @@ func main() {
 	cfg := struct {
 		configFile string
 
-		localStoragePath    string
-		notifier            notifier.Options
-		notifierTimeout     model.Duration
-		forGracePeriod      model.Duration
-		outageTolerance     model.Duration
-		resendDelay         model.Duration
-		web                 web.Options
-		tsdb                tsdbOptions
-		lookbackDelta       model.Duration
-		webTimeout          model.Duration
-		queryTimeout        model.Duration
-		queryConcurrency    int
-		queryMaxSamples     int
-		RemoteFlushDeadline model.Duration
+		localStoragePath       string
+		notifier               notifier.Options
+		notifierTimeout        model.Duration
+		forGracePeriod         model.Duration
+		outageTolerance        model.Duration
+		resendDelay            model.Duration
+		web                    web.Options
+		tsdb                   tsdbOptions
+		lookbackDelta          model.Duration
+		webTimeout             model.Duration
+		queryTimeout           model.Duration
+		queryConcurrency       int
+		queryMaxSamples        int
+		RemoteFlushDeadline    model.Duration
+		ExemplarsLimit         int
+		CircularExemplarsLimit int
 
 		prometheusURL   string
 		corsRegexString string
@@ -223,6 +225,12 @@ func main() {
 
 	a.Flag("storage.remote.read-max-bytes-in-frame", "Maximum number of bytes in a single frame for streaming remote read response types before marshalling. Note that client might have limit on frame size as well. 1MB as recommended by protobuf by default.").
 		Default("1048576").IntVar(&cfg.web.RemoteReadBytesInFrame)
+
+	a.Flag("storage.exemplars.exemplars-per-series-limit", "Maximum number of exemplars to store in in-memory exemplar storage per series.").
+		Default("10").IntVar(&cfg.ExemplarsLimit)
+
+	a.Flag("storage.exemplars.exemplars-circular-limit", "Maximum number of exemplars to store in circular exemplar storage total.").
+		Default("1000000").IntVar(&cfg.CircularExemplarsLimit)
 
 	a.Flag("rules.alert.for-outage-tolerance", "Max time to tolerate prometheus outage for restoring \"for\" state of alert.").
 		Default("1h").SetValue(&cfg.outageTolerance)
@@ -337,10 +345,11 @@ func main() {
 	level.Info(logger).Log("vm_limits", prom_runtime.VmLimits())
 
 	var (
-		localStorage  = &readyStorage{}
-		scraper       = &scrape.ReadyScrapeManager{}
-		remoteStorage = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
-		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
+		localStorage    = &readyStorage{}
+		scraper         = &scrape.ReadyScrapeManager{}
+		remoteStorage   = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
+		fanoutStorage   = storage.NewFanout(logger, localStorage, remoteStorage)
+		exemplarStorage = tsdb.NewCircularExemplarStorage(cfg.CircularExemplarsLimit)
 	)
 
 	var (
@@ -355,7 +364,7 @@ func main() {
 		ctxNotify, cancelNotify = context.WithCancel(context.Background())
 		discoveryManagerNotify  = discovery.NewManager(ctxNotify, log.With(logger, "component", "discovery manager notify"), discovery.Name("notify"))
 
-		scrapeManager = scrape.NewManager(log.With(logger, "component", "scrape manager"), fanoutStorage)
+		scrapeManager = scrape.NewManager(log.With(logger, "component", "scrape manager"), fanoutStorage, exemplarStorage)
 
 		opts = promql.EngineOpts{
 			Logger:             log.With(logger, "component", "query engine"),
@@ -406,6 +415,7 @@ func main() {
 	}
 
 	cfg.web.Flags = map[string]string{}
+	cfg.web.ExemplarStorage = exemplarStorage
 
 	// Exclude kingpin default flags to expose only Prometheus ones.
 	boilerplateFlags := kingpin.New("", "").Version("")
@@ -427,6 +437,7 @@ func main() {
 
 	reloaders := []func(cfg *config.Config) error{
 		remoteStorage.ApplyConfig,
+		exemplarStorage.ApplyConfig,
 		webHandler.ApplyConfig,
 		func(cfg *config.Config) error {
 			if cfg.GlobalConfig.QueryLogFile == "" {

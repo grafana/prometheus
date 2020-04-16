@@ -39,6 +39,7 @@ import (
 	"github.com/prometheus/common/route"
 
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/gate"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/textparse"
@@ -141,6 +142,11 @@ type RuntimeInfo struct {
 	StorageRetention    string    `json:"storageRetention"`
 }
 
+type exemplarData struct {
+	SeriesLabels labels.Labels       `json:"seriesLabels"`
+	Exemplars    []exemplar.Exemplar `json:"exemplars"`
+}
+
 type response struct {
 	Status    status      `json:"status"`
 	Data      interface{} `json:"data,omitempty"`
@@ -170,8 +176,9 @@ type TSDBAdmin interface {
 // API can register a set of endpoints in a router and handle
 // them using the provided storage and query engine.
 type API struct {
-	Queryable   storage.Queryable
-	QueryEngine *promql.Engine
+	Queryable         storage.Queryable
+	QueryEngine       *promql.Engine
+	ExemplarQueryable storage.ExemplarQueryable
 
 	targetRetriever       targetRetriever
 	alertmanagerRetriever alertmanagerRetriever
@@ -202,6 +209,7 @@ func init() {
 func NewAPI(
 	qe *promql.Engine,
 	q storage.Queryable,
+	eq storage.ExemplarQueryable,
 	tr targetRetriever,
 	ar alertmanagerRetriever,
 	configFunc func() config.Config,
@@ -222,6 +230,7 @@ func NewAPI(
 	return &API{
 		QueryEngine:           qe,
 		Queryable:             q,
+		ExemplarQueryable:     eq,
 		targetRetriever:       tr,
 		alertmanagerRetriever: ar,
 
@@ -271,6 +280,8 @@ func (api *API) Register(r *route.Router) {
 	r.Post("/query", wrap(api.query))
 	r.Get("/query_range", wrap(api.queryRange))
 	r.Post("/query_range", wrap(api.queryRange))
+	r.Get("/query_exemplar", wrap(api.queryExemplars))
+	r.Post("/query_exemplar", wrap(api.queryExemplars))
 
 	r.Get("/labels", wrap(api.labelNames))
 	r.Post("/labels", wrap(api.labelNames))
@@ -431,6 +442,69 @@ func (api *API) queryRange(r *http.Request) apiFuncResult {
 		Result:     res.Value,
 		Stats:      qs,
 	}, nil, res.Warnings, qry.Close}
+}
+
+func (api *API) queryExemplars(r *http.Request) apiFuncResult {
+	ctx := r.Context()
+	if to := r.FormValue("timeout"); to != "" {
+		var cancel context.CancelFunc
+		timeout, err := parseDuration(to)
+		if err != nil {
+			err = errors.Wrap(err, "invalid parameter 'timeout'")
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+		}
+
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	q, err := api.Queryable.Querier(ctx, timestamp.FromTime(minTime), timestamp.FromTime(maxTime))
+	if err != nil {
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+	}
+
+	expr, err := parser.ParseExpr(r.FormValue("query"))
+	if err != nil {
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+	}
+
+	selectors, err := parser.ExtractSelectors(expr)
+	if err != nil {
+		return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+	}
+	if len(selectors) < 1 {
+		return apiFuncResult{nil, &apiError{errorBadData, fmt.Errorf("no series found for supplied query: %s", expr)}, nil, nil}
+	}
+
+	var retExemplars []exemplarData
+
+	for _, selectorArr := range selectors {
+		ss, _, err := q.Select(false, nil, selectorArr...)
+		if err != nil {
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+		}
+
+		eq, err := api.ExemplarQueryable.Querier(context.Background())
+		if err != nil {
+			return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+		}
+		for {
+			ok := ss.Next()
+			if !ok {
+				break
+			}
+			res, err := eq.Select(ss.At().Labels())
+			if err != nil {
+				return apiFuncResult{nil, &apiError{errorBadData, err}, nil, nil}
+			}
+			if len(res) == 0 {
+				continue
+			}
+			retExemplars = append(retExemplars, exemplarData{SeriesLabels: ss.At().Labels(), Exemplars: res})
+		}
+	}
+
+	return apiFuncResult{retExemplars, nil, nil, nil}
 }
 
 func returnAPIError(err error) *apiError {
