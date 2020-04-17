@@ -157,6 +157,9 @@ func NewCircularExemplarStorage(len int) *CircularExemplarStorage {
 func (ce *CircularExemplarStorage) ApplyConfig(conf *config.Config) error {
 	ce.relabelMtx.Lock()
 	defer ce.relabelMtx.Unlock()
+	if conf.ExemplarConfig == nil || conf.ExemplarConfig.RelabelConfigs == nil {
+		return nil
+	}
 	ce.relabelConfigs = conf.ExemplarConfig.RelabelConfigs
 	return nil
 }
