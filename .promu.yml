@@ -8,6 +8,8 @@ build:
     binaries:
         - name: prometheus
           path: ./cmd/prometheus
+        - name: prometheus-agent
+          path: ./cmd/prometheus-agent
         - name: promtool
           path: ./cmd/promtool
     flags: -a -tags netgo,builtinassets

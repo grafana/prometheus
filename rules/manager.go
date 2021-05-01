@@ -184,6 +184,10 @@ type QueryFunc func(ctx context.Context, q string, t time.Time) (promql.Vector, 
 // It converts scalar into vector results.
 func EngineQueryFunc(engine *promql.Engine, q storage.Queryable) QueryFunc {
 	return func(ctx context.Context, qs string, t time.Time) (promql.Vector, error) {
+		if engine == nil {
+			return nil, errors.New("querying unavailable")
+		}
+
 		q, err := engine.NewInstantQuery(q, qs, t)
 		if err != nil {
 			return nil, err
