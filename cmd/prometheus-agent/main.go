@@ -90,23 +90,13 @@ type flagConfig struct {
 
 	localStoragePath    string
 	notifier            notifier.Options
-	forGracePeriod      model.Duration
-	outageTolerance     model.Duration
-	resendDelay         model.Duration
 	web                 web.Options
 	wal                 walOptions
 	lookbackDelta       model.Duration
 	webTimeout          model.Duration
-	queryTimeout        model.Duration
-	queryConcurrency    int
-	queryMaxSamples     int
 	RemoteFlushDeadline model.Duration
 
-	featureList []string
-	// These options are extracted from featureList
-	// for ease of use.
-	enablePromQLAtModifier     bool
-	enablePromQLNegativeOffset bool
+	featureList                []string
 	enableExpandExternalLabels bool
 
 	prometheusURL   string
@@ -793,9 +783,8 @@ func computeExternalURL(u, listenAddr string) (*url.URL, error) {
 // readyStorage implements the Storage interface while allowing to set the actual
 // storage at a later point in time.
 type readyStorage struct {
-	mtx             sync.RWMutex
-	db              *wal.Storage
-	startTimeMargin int64
+	mtx sync.RWMutex
+	db  *wal.Storage
 }
 
 // Set the storage.
