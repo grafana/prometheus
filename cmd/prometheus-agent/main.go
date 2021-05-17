@@ -1,4 +1,4 @@
-// Copyright 2015 The Prometheus Authors
+// Copyright 2021 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -219,10 +219,6 @@ func main() {
 		"Maximum age samples may be before being forcibly deleted when the WAL is truncated").
 		SetValue(&cfg.wal.MaxWALTime)
 
-	a.Flag("storage.wal.write-stale-on-shutdown",
-		"Write staleness markers for everything in the WAL when shutting down").
-		BoolVar(&cfg.wal.WriteStaleOnShutdown)
-
 	a.Flag("scrape.adjust-timestamps", "Adjust scrape timestamps by up to 2ms to align them to the intended schedule. See https://github.com/prometheus/prometheus/issues/7846 for more context. Experimental. This flag will be removed in a future release.").
 		Hidden().Default("true").BoolVar(&scrape.AlignScrapeTimestamps)
 
@@ -393,8 +389,7 @@ func main() {
 		},
 	}
 
-	prometheus.MustRegister(configSuccess)
-	prometheus.MustRegister(configSuccessTime)
+	prometheus.MustRegister(configSuccess, configSuccessTime)
 
 	// Start all components while we wait for TSDB to open but only load
 	// initial config and mark ourselves as ready after it completed.
@@ -615,7 +610,6 @@ func main() {
 					"TruncateFrequency", cfg.wal.TruncateFrequency,
 					"MinWALTime", cfg.wal.MinWALTime,
 					"MaxWALTime", cfg.wal.MaxWALTime,
-					"WriteStaleOnShutdown", cfg.wal.WriteStaleOnShutdown,
 				)
 
 				localStorage.Set(db)
@@ -949,18 +943,16 @@ type walOptions struct {
 	StripeSize             int
 	TruncateFrequency      model.Duration
 	MinWALTime, MaxWALTime model.Duration
-	WriteStaleOnShutdown   bool
 }
 
 func (opts walOptions) ToWALOptions() wal.Options {
 	return wal.Options{
-		WALSegmentSize:       int(opts.WALSegmentSize),
-		WALCompression:       opts.WALCompression,
-		StripeSize:           opts.StripeSize,
-		TruncateFrequency:    time.Duration(opts.TruncateFrequency),
-		MinWALTime:           time.Duration(opts.MinWALTime),
-		MaxWALTime:           time.Duration(opts.MaxWALTime),
-		WriteStaleOnShutdown: opts.WriteStaleOnShutdown,
+		WALSegmentSize:    int(opts.WALSegmentSize),
+		WALCompression:    opts.WALCompression,
+		StripeSize:        opts.StripeSize,
+		TruncateFrequency: time.Duration(opts.TruncateFrequency),
+		MinWALTime:        time.Duration(opts.MinWALTime),
+		MaxWALTime:        time.Duration(opts.MaxWALTime),
 	}
 }
 

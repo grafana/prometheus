@@ -16,7 +16,6 @@ package wal
 import (
 	"context"
 	"fmt"
-	"math"
 	"path/filepath"
 	"sync"
 	"time"
@@ -29,7 +28,6 @@ import (
 	"github.com/prometheus/prometheus/pkg/exemplar"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/timestamp"
-	"github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb"
@@ -72,23 +70,18 @@ type Options struct {
 	// Shortest and longest amount of time data can exist in the WAL before being
 	// deleted.
 	MinWALTime, MaxWALTime time.Duration
-
-	// WriteStaleOnShutdown indicates that all series should be given a staleness marker
-	// when closing the storage.
-	WriteStaleOnShutdown bool
 }
 
 // DefaultOptions used for the WAL storage. They are sane for setups using
 // millisecond-precision timestamps.
 func DefaultOptions() *Options {
 	return &Options{
-		WALSegmentSize:       wal.DefaultSegmentSize,
-		WALCompression:       false,
-		StripeSize:           tsdb.DefaultStripeSize,
-		TruncateFrequency:    DefaultTruncateFrequency,
-		MinWALTime:           DefaultMinWALTime,
-		MaxWALTime:           DefaultMaxWALTime,
-		WriteStaleOnShutdown: false,
+		WALSegmentSize:    wal.DefaultSegmentSize,
+		WALCompression:    false,
+		StripeSize:        tsdb.DefaultStripeSize,
+		TruncateFrequency: DefaultTruncateFrequency,
+		MinWALTime:        DefaultMinWALTime,
+		MaxWALTime:        DefaultMaxWALTime,
 	}
 }
 
@@ -438,75 +431,6 @@ Loop:
 			if err := s.truncate(ts); err != nil {
 				level.Warn(s.logger).Log("msg", "failed to truncate WAL", "err", err)
 			}
-		}
-	}
-
-	if s.opts.WriteStaleOnShutdown {
-		if err := s.writeStalenessMarkers(); err != nil {
-			level.Warn(s.logger).Log("msg", "failed to write staleness markers", "err", err)
-		}
-	}
-}
-
-func (s *Storage) writeStalenessMarkers() error {
-	var (
-		lastTs int64
-		app    = s.Appender(context.Background())
-	)
-
-	for refLock := 0; refLock < s.series.size; refLock++ {
-		s.series.locks[refLock].RLock()
-
-		for _, series := range s.series.series[refLock] {
-			series.Lock()
-
-			hashLock := int(series.lset.Hash()) & (s.series.size - 1)
-			if refLock != hashLock {
-				s.series.locks[hashLock].RLock()
-			}
-
-			ts := timestamp.FromTime(time.Now())
-			_, err := app.Append(series.ref, series.lset, ts, math.Float64frombits(value.StaleNaN))
-			if err != nil {
-				return errors.Wrap(err, "append staleness marker")
-			}
-
-			// Remove millisecond precision; the remote write timestamp we
-			// get only has second precision.
-			lastTs = (ts / 1000) * 1000
-
-			if refLock != hashLock {
-				s.series.locks[hashLock].RUnlock()
-			}
-			series.Unlock()
-		}
-
-		s.series.locks[refLock].RUnlock()
-	}
-
-	if err := app.Commit(); err != nil {
-		return errors.Wrap(err, "commit stalness markers")
-	}
-
-	level.Info(s.logger).Log("msg", "waiting 60s for remote_write to send staleness markers")
-
-	stopCh := time.After(time.Minute)
-	start := time.Now()
-
-	for {
-		select {
-		case <-stopCh:
-			level.Warn(s.logger).Log("msg", "timed out waiting for staleness markers to write")
-			return nil
-		default:
-			writtenTs := s.rs.LowestSentTimestamp()
-			if writtenTs >= lastTs {
-				level.Info(s.logger).Log("msg", "staleness markers sent", "duration", time.Since(start))
-				return nil
-			}
-
-			level.Info(s.logger).Log("msg", "staleness markers not yet sent", "remoteTs", writtenTs, "lastTs", lastTs, "duration", time.Since(start))
-			time.Sleep(5 * time.Second)
 		}
 	}
 }
