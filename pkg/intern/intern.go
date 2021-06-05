@@ -52,11 +52,18 @@ func New(r prometheus.Registerer) Interner {
 }
 
 type Metrics struct {
+	Strings             prometheus.Gauge
 	NoReferenceReleases prometheus.Counter
 }
 
 func NewMetrics(r prometheus.Registerer) *Metrics {
 	var m Metrics
+	m.Strings = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "prometheus",
+		Subsystem: "interner",
+		Name:      "num_strings",
+		Help:      "The current number of interned strings",
+	})
 	m.NoReferenceReleases = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "prometheus",
 		Subsystem: "interner",
@@ -65,6 +72,7 @@ func NewMetrics(r prometheus.Registerer) *Metrics {
 	})
 
 	if r != nil {
+		r.MustRegister(m.Strings)
 		r.MustRegister(m.NoReferenceReleases)
 	}
 
@@ -109,6 +117,7 @@ func (p *pool) Intern(s string) string {
 		return interned.s
 	}
 
+	p.m.Strings.Inc()
 	p.pool[s] = newEntry(s)
 	p.pool[s].refs.Store(1)
 	return s
@@ -134,6 +143,7 @@ func (p *pool) Release(s string) {
 	if interned.refs.Load() != 0 {
 		return
 	}
+	p.m.Strings.Dec()
 	delete(p.pool, s)
 }
 
