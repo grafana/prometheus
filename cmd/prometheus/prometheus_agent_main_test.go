@@ -1,4 +1,4 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright 2021 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -67,7 +67,7 @@ func TestInvalidCmdLine(t *testing.T) {
 }
 
 // Test for successful startup.
-func TestSuccesfulStartup(t *testing.T) {
+func TestSuccessfulStartup(t *testing.T) {
 	prom := exec.Command(promPath, "-test.main", "--agent", "--config.file="+promAgentConfig)
 	err := prom.Start()
 	require.NoError(t, err)

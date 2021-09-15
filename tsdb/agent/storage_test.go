@@ -1,4 +1,4 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright 2021 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -15,14 +15,15 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/go-kit/log"
+
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/storage/remote"
@@ -32,7 +33,7 @@ import (
 
 var promAgentData = filepath.Join(os.TempDir(), "data-agent")
 
-func TestQuerier(t *testing.T) {
+func TestUnsupported(t *testing.T) {
 	opts := DefaultOptions()
 	cfg := promlog.Config{}
 	logger := promlog.New(&cfg)
@@ -41,38 +42,22 @@ func TestQuerier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create storage for the agent: %v", err)
 	}
+	defer s.Close()
 
-	_, err = s.Querier(context.TODO(), 0, 0)
-	s.Close()
-	require.Equal(t, err, ErrUnsupported)
-}
+	t.Run("Querier", func(t *testing.T) {
+		_, err := s.Querier(context.TODO(), 0, 0)
+		require.Equal(t, err, ErrUnsupported)
+	})
 
-func TestChunkQuerier(t *testing.T) {
-	opts := DefaultOptions()
-	cfg := promlog.Config{}
-	logger := promlog.New(&cfg)
+	t.Run("ChunkQuerier", func(t *testing.T) {
+		_, err := s.ChunkQuerier(context.TODO(), 0, 0)
+		require.Equal(t, err, ErrUnsupported)
+	})
 
-	s, err := NewStorage(logger, prometheus.NewRegistry(), nil, promAgentData, opts)
-	if err != nil {
-		t.Fatalf("unable to create storage for the agent: %v", err)
-	}
-
-	_, err = s.ChunkQuerier(context.TODO(), 0, 0)
-	require.Equal(t, err, ErrUnsupported)
-}
-
-func TestExemplarQuerier(t *testing.T) {
-	opts := DefaultOptions()
-	cfg := promlog.Config{}
-	logger := promlog.New(&cfg)
-
-	s, err := NewStorage(logger, prometheus.NewRegistry(), nil, promAgentData, opts)
-	if err != nil {
-		t.Fatalf("unable to create storage for the agent: %v", err)
-	}
-
-	_, err = s.ExemplarQuerier(context.TODO())
-	require.Equal(t, err, ErrUnsupported)
+	t.Run("ExemplarQuerier", func(t *testing.T) {
+		_, err := s.ExemplarQuerier(context.TODO())
+		require.Equal(t, err, ErrUnsupported)
+	})
 }
 
 func TestPreCommit(t *testing.T) {
@@ -92,7 +77,6 @@ func TestPreCommit(t *testing.T) {
 
 	a := s.Appender(context.TODO())
 	for _, l := range lbls {
-		fmt.Println("label :", l)
 		lset := labels.New(l...)
 		for i := 0; i < numDatapoints; i++ {
 			sample := tsdbutil.GenerateSamples(0, 1)
@@ -101,25 +85,14 @@ func TestPreCommit(t *testing.T) {
 		}
 	}
 
-	mFamily, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("error gathering metrics: %v", err)
-	}
-
 	var samplesAdded float64
 	var actvieTimeSeries float64
 
-	for _, m := range mFamily {
-		if m.GetName() == "prometheus_agent_wal_active_series" {
-			actvieTimeSeries = m.Metric[0].Gauge.GetValue()
-			continue
-		}
+	m := gatherFamily(t, reg, "prometheus_agent_wal_active_series")
+	actvieTimeSeries = m.Metric[0].Gauge.GetValue()
 
-		if m.GetName() == "prometheus_agent_wal_samples_appended_total" {
-			samplesAdded = m.Metric[0].Counter.GetValue()
-			continue
-		}
-	}
+	m = gatherFamily(t, reg, "prometheus_agent_wal_samples_appended_total")
+	samplesAdded = m.Metric[0].Counter.GetValue()
 
 	require.Equal(t, samplesAdded, float64(numDatapoints*8))
 	require.Equal(t, actvieTimeSeries, float64(8))
@@ -153,19 +126,12 @@ func TestCommit(t *testing.T) {
 
 	require.NoError(t, a.Commit())
 	time.Sleep(time.Second * 10)
-	mFamily, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("error gathering metrics: %v", err)
-	}
 
 	var walPages float64
 
-	for _, m := range mFamily {
-		if m.GetName() == "prometheus_tsdb_wal_completed_pages_total" {
-			walPages = m.Metric[0].Counter.GetValue()
-			break
-		}
-	}
+	m := gatherFamily(t, reg, "prometheus_tsdb_wal_completed_pages_total")
+	walPages = m.Metric[0].Counter.GetValue()
+
 	require.GreaterOrEqual(t, walPages, float64(1))
 }
 
@@ -200,19 +166,11 @@ func TestTruncateWAL(t *testing.T) {
 
 	require.NoError(t, a.Commit())
 	time.Sleep(time.Second * 20)
-	mFamily, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("error gathering metrics: %v", err)
-	}
 
 	var deleteSeries float64
 
-	for _, m := range mFamily {
-		if m.GetName() == "prometheus_agent_wal_deleted_series" {
-			deleteSeries = m.Metric[0].Gauge.GetValue()
-			break
-		}
-	}
+	m := gatherFamily(t, reg, "prometheus_agent_wal_deleted_series")
+	deleteSeries = m.Metric[0].Gauge.GetValue()
 
 	require.Equal(t, deleteSeries, float64(8))
 }
@@ -259,17 +217,8 @@ func TestWALReplay(t *testing.T) {
 
 	var actvieTimeSeries float64
 
-	mFamily, err := restartReg.Gather()
-	if err != nil {
-		t.Fatalf("error gathering metrics: %v", err)
-	}
-
-	for _, m := range mFamily {
-		if m.GetName() == "prometheus_agent_wal_active_series" {
-			actvieTimeSeries = m.Metric[0].Gauge.GetValue()
-			break
-		}
-	}
+	m := gatherFamily(t, reg, "prometheus_agent_wal_active_series")
+	actvieTimeSeries = m.Metric[0].Gauge.GetValue()
 
 	require.Equal(t, actvieTimeSeries, float64(8))
 }
@@ -322,4 +271,20 @@ func labelsForTest() []labels.Labels {
 			{Name: "job", Value: "prom-k8s"},
 		},
 	}
+}
+
+func gatherFamily(t *testing.T, reg prometheus.Gatherer, familyName string) *dto.MetricFamily {
+	t.Helper()
+
+	families, err := reg.Gather()
+	require.NoError(t, err, "failed to gather metrics")
+
+	for _, f := range families {
+		if f.GetName() == familyName {
+			return f
+		}
+	}
+
+	t.Fatalf("could not find family %s", familyName)
+	return nil
 }
