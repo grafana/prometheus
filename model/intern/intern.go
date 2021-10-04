@@ -32,7 +32,7 @@ var (
 	Global Interner = New(prometheus.DefaultRegisterer)
 )
 
-// Iterner is a string interner.
+// Interner is a string interner.
 type Interner interface {
 	// Metrics returns Metrics for the interner.
 	Metrics() *Metrics
@@ -148,18 +148,18 @@ func (p *pool) Release(s string) {
 	delete(p.pool, s)
 }
 
-// InternLabels is a helper function for interning all label
-// names and values to a given interner.
-func InternLabels(interner Interner, lbls labels.Labels) {
+// Intern is a helper function for interning all label names and values to a
+// given interner.
+func Intern(interner Interner, lbls labels.Labels) {
 	for i, l := range lbls {
 		lbls[i].Name = interner.Intern(l.Name)
 		lbls[i].Value = interner.Intern(l.Value)
 	}
 }
 
-// ReleaseLabels is a helper function for releasing all label
-// names and values from a given interner.
-func ReleaseLabels(interner Interner, ls labels.Labels) {
+// Release is a helper function for releasing all label names and values from a
+// given interner.
+func Release(interner Interner, ls labels.Labels) {
 	for _, l := range ls {
 		interner.Release(l.Name)
 		interner.Release(l.Value)
