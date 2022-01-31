@@ -353,7 +353,7 @@ func TestScrapePoolTargetLimit(t *testing.T) {
 		client:        http.DefaultClient,
 	}
 
-	tgs := []*targetgroup.Group{}
+	var tgs []*targetgroup.Group
 	for i := 0; i < 50; i++ {
 		tgs = append(tgs,
 			&targetgroup.Group{
