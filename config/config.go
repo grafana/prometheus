@@ -151,6 +151,7 @@ var (
 		QueueConfig:      DefaultQueueConfig,
 		MetadataConfig:   DefaultMetadataConfig,
 		HTTPClientConfig: config.DefaultHTTPClientConfig,
+		SendExemplars:    true,
 	}
 
 	// DefaultQueueConfig is the default remote queue configuration.
