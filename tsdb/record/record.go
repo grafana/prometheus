@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/textparse"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/encoding"
@@ -42,7 +43,44 @@ const (
 	Tombstones Type = 3
 	// Exemplars is used to match WAL records of type Exemplars.
 	Exemplars Type = 4
+	// Metadata is used to match WAL records of type Metadata.
+	Metadata Type = 5
 )
+
+// MetricType represents the type of a series.
+type MetricType uint8
+
+const (
+	UnknownMT      MetricType = 0
+	Counter        MetricType = 1
+	Gauge          MetricType = 2
+	Histogram      MetricType = 3
+	GaugeHistogram MetricType = 4
+	Summary        MetricType = 5
+	Info           MetricType = 6
+	Stateset       MetricType = 7
+)
+
+func GetMetricType(t textparse.MetricType) uint8 {
+	switch t {
+	case textparse.MetricTypeCounter:
+		return uint8(Counter)
+	case textparse.MetricTypeGauge:
+		return uint8(Gauge)
+	case textparse.MetricTypeHistogram:
+		return uint8(Histogram)
+	case textparse.MetricTypeGaugeHistogram:
+		return uint8(GaugeHistogram)
+	case textparse.MetricTypeSummary:
+		return uint8(Summary)
+	case textparse.MetricTypeInfo:
+		return uint8(Info)
+	case textparse.MetricTypeStateset:
+		return uint8(Stateset)
+	default:
+		return uint8(UnknownMT)
+	}
+}
 
 // ErrNotFound is returned if a looked up resource was not found. Duplicate ErrNotFound from head.go.
 var ErrNotFound = errors.New("not found")
@@ -58,6 +96,14 @@ type RefSample struct {
 	Ref chunks.HeadSeriesRef
 	T   int64
 	V   float64
+}
+
+// RefMetadata is the metadata associated with a series ID.
+type RefMetadata struct {
+	Ref  chunks.HeadSeriesRef
+	Type uint8
+	Unit string
+	Help string
 }
 
 // RefExemplar is an exemplar with it's labels, timestamp, value the exemplar was collected/observed with, and a reference to a series.
@@ -79,7 +125,7 @@ func (d *Decoder) Type(rec []byte) Type {
 		return Unknown
 	}
 	switch t := Type(rec[0]); t {
-	case Series, Samples, Tombstones, Exemplars:
+	case Series, Samples, Tombstones, Exemplars, Metadata:
 		return t
 	}
 	return Unknown
@@ -115,6 +161,48 @@ func (d *Decoder) Series(rec []byte, series []RefSeries) ([]RefSeries, error) {
 		return nil, errors.Errorf("unexpected %d bytes left in entry", len(dec.B))
 	}
 	return series, nil
+}
+
+// Metadata appends metadata in rec to the given slice.
+func (d *Decoder) Metadata(rec []byte, metadata []RefMetadata) ([]RefMetadata, error) {
+	dec := encoding.Decbuf{B: rec}
+
+	if Type(dec.Byte()) != Metadata {
+		return nil, errors.New("invalid record type")
+	}
+	for len(dec.B) > 0 && dec.Err() == nil {
+		ref := dec.Uvarint64()
+		size := dec.Uvarint()
+
+		remainingBeforeReadFields := dec.Len()
+
+		typ := dec.Byte()
+		unit := dec.UvarintStr()
+		help := dec.UvarintStr()
+
+		// The bytes consumed will have shrunk, therefore delta between
+		// bytes unread before and bytes unread after is how much we consumed.
+		remainingAfterReadFields := dec.Len()
+		sizeFieldsRead := remainingBeforeReadFields - remainingAfterReadFields
+		if sizeFieldsUnread := size - sizeFieldsRead; sizeFieldsUnread > 0 {
+			// Need to skip fields that we didn't read and don't know about.
+			dec.Skip(sizeFieldsUnread)
+		}
+
+		metadata = append(metadata, RefMetadata{
+			Ref:  chunks.HeadSeriesRef(ref),
+			Type: typ,
+			Unit: unit,
+			Help: help,
+		})
+	}
+	if dec.Err() != nil {
+		return nil, dec.Err()
+	}
+	if len(dec.B) > 0 {
+		return nil, errors.Errorf("unexpected %d bytes left in entry", len(dec.B))
+	}
+	return metadata, nil
 }
 
 // Samples appends samples in rec to the given slice.
@@ -241,6 +329,29 @@ func (e *Encoder) Series(series []RefSeries, b []byte) []byte {
 			buf.PutUvarintStr(l.Value)
 		}
 	}
+	return buf.Get()
+}
+
+// Metadata appends the encoded metadata to b and returns the resulting slice.
+func (e *Encoder) Metadata(metadata []RefMetadata, b []byte) []byte {
+	buf := encoding.Encbuf{B: b}
+	buf.PutByte(byte(Metadata))
+
+	for _, m := range metadata {
+		buf.PutUvarint64(uint64(m.Ref))
+
+		// Use a temporary buffer to get the size of the fields
+		// that we're going to encode before writing the fields themselves.
+		tmp := encoding.Encbuf{B: []byte{}}
+		tmp.PutByte(m.Type)
+		tmp.PutUvarintStr(string(m.Unit))
+		tmp.PutUvarintStr(string(m.Help))
+
+		// Write the size of the temporary buffer and copy back the encoded fields into place.
+		buf.PutUvarint(tmp.Len())
+		buf.B = append(buf.B, tmp.B...)
+	}
+
 	return buf.Get()
 }
 
