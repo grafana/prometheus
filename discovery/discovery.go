@@ -41,6 +41,10 @@ type Discoverer interface {
 // DiscovererOptions provides options for a Discoverer.
 type DiscovererOptions struct {
 	Logger log.Logger
+
+	// Optional function to override dialing to scrape targets. Go's default
+	// dialer is used when not provided.
+	DialContextFunc config.DialContextFunc
 }
 
 // A Config provides the configuration and constructor for a Discoverer.
