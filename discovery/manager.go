@@ -23,6 +23,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/config"
 
 	"github.com/prometheus/prometheus/discovery/targetgroup"
 )
@@ -124,13 +125,21 @@ func Name(n string) func(*Manager) {
 	}
 }
 
+// DialContextFunc sets the DialContextFunc passed to SDs.
+func DialContextFunc(fn config.DialContextFunc) func(*Manager) {
+	return func(m *Manager) {
+		m.dialFunc = fn
+	}
+}
+
 // Manager maintains a set of discovery providers and sends each update to a map channel.
 // Targets are grouped by the target set name.
 type Manager struct {
-	logger log.Logger
-	name   string
-	mtx    sync.RWMutex
-	ctx    context.Context
+	logger   log.Logger
+	name     string
+	mtx      sync.RWMutex
+	ctx      context.Context
+	dialFunc config.DialContextFunc
 
 	// Some Discoverers(e.g. k8s) send only the updates for a given target group,
 	// so we use map[tg.Source]*targetgroup.Group to know which group to update.
@@ -404,7 +413,8 @@ func (m *Manager) registerProviders(cfgs Configs, setName string) int {
 		}
 		typ := cfg.Name()
 		d, err := cfg.NewDiscoverer(DiscovererOptions{
-			Logger: log.With(m.logger, "discovery", typ),
+			Logger:          log.With(m.logger, "discovery", typ),
+			DialContextFunc: m.dialFunc,
 		})
 		if err != nil {
 			level.Error(m.logger).Log("msg", "Cannot create service discovery", "err", err, "type", typ)

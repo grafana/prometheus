@@ -24,8 +24,9 @@ import (
 	"github.com/go-kit/log"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/stretchr/testify/require"
+
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 )
 
 func TestHTTPValidRefresh(t *testing.T) {
@@ -38,7 +39,7 @@ func TestHTTPValidRefresh(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -76,7 +77,7 @@ func TestHTTPInvalidCode(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -97,7 +98,7 @@ func TestHTTPInvalidFormat(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -387,7 +388,7 @@ func TestSourceDisappeared(t *testing.T) {
 		URL:              ts.URL,
 		RefreshInterval:  model.Duration(1 * time.Second),
 	}
-	d, err := NewDiscovery(&cfg, log.NewNopLogger())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 	for _, test := range cases {
 		ctx := context.Background()
