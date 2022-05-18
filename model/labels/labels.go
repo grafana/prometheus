@@ -497,3 +497,41 @@ Outer:
 	}
 	return res
 }
+
+// WithLabels returns a new labels.Labels from ls that only contains labels matching names.
+// 'names' have to be sorted in ascending order.
+func (ls Labels) WithLabels(names ...string) Labels {
+	ret := make([]Label, 0, len(ls))
+
+	i, j := 0, 0
+	for i < len(ls) && j < len(names) {
+		if names[j] < ls[i].Name {
+			j++
+		} else if ls[i].Name < names[j] {
+			i++
+		} else {
+			ret = append(ret, ls[i])
+			i++
+			j++
+		}
+	}
+	return ret
+}
+
+// WithoutLabels returns a new labels.Labels from ls that contains labels not matching names.
+// 'names' have to be sorted in ascending order.
+func (ls Labels) WithoutLabels(names ...string) Labels {
+	ret := make([]Label, 0, len(ls))
+
+	j := 0
+	for i := range ls {
+		for j < len(names) && names[j] < ls[i].Name {
+			j++
+		}
+		if ls[i].Name == MetricName || (j < len(names) && ls[i].Name == names[j]) {
+			continue
+		}
+		ret = append(ret, ls[i])
+	}
+	return ret
+}
