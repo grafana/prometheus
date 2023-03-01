@@ -565,7 +565,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 				},
 			}
 			informer := d.newPodsByNodeInformer(plw)
-			informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+			_ = informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
 				level.Error(d.logger).Log("msg", "watch error", "err", err)
 			})
 			pod := NewPod(
