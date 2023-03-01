@@ -547,6 +547,10 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 		var nodeInformer cache.SharedInformer
 		if d.attachMetadata.Node {
 			nodeInformer = d.newNodeInformer(ctx)
+			nodeInformer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+				level.Error(d.logger).Log("msg", "watch error", "err", err)
+			})
+
 			go nodeInformer.Run(ctx.Done())
 		}
 
