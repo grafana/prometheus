@@ -547,10 +547,6 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 		var nodeInformer cache.SharedInformer
 		if d.attachMetadata.Node {
 			nodeInformer = d.newNodeInformer(ctx)
-			nodeInformer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
-				level.Error(d.logger).Log("msg", "watch error", "err", err)
-			})
-
 			go nodeInformer.Run(ctx.Done())
 		}
 
@@ -568,9 +564,13 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 					return p.Watch(ctx, options)
 				},
 			}
+			informer := d.newPodsByNodeInformer(plw)
+			informer.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+				level.Error(d.logger).Log("msg", "watch error", "err", err)
+			})
 			pod := NewPod(
 				log.With(d.logger, "role", "pod"),
-				d.newPodsByNodeInformer(plw),
+				informer,
 				nodeInformer,
 			)
 			d.discoverers = append(d.discoverers, pod)
