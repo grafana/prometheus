@@ -191,6 +191,9 @@ var (
 		// Backoff times for retrying a batch of samples on recoverable errors.
 		MinBackoff: model.Duration(30 * time.Millisecond),
 		MaxBackoff: model.Duration(5 * time.Second),
+
+		SecondaryReplicaFallBehindDuration:  model.Duration(time.Minute),
+		SecondaryReplicaFallBehindThreshold: model.Duration(time.Second),
 	}
 
 	// DefaultMetadataConfig is the default metadata configuration for a remote write endpoint.
@@ -880,6 +883,10 @@ type QueueConfig struct {
 	MinBackoff       model.Duration `yaml:"min_backoff,omitempty"`
 	MaxBackoff       model.Duration `yaml:"max_backoff,omitempty"`
 	RetryOnRateLimit bool           `yaml:"retry_on_http_429,omitempty"`
+
+	// Secondary replica config
+	SecondaryReplicaFallBehindDuration  model.Duration `yaml:"secondary_replica_fall_behind_duration"`
+	SecondaryReplicaFallBehindThreshold model.Duration `yaml:"secondary_replica_fall_behind_threshold"`
 }
 
 // MetadataConfig is the configuration for sending metadata to remote
