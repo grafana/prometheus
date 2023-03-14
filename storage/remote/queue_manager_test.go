@@ -715,7 +715,7 @@ func (c *TestWriteClient) waitForExpectedData(tb testing.TB) {
 	}
 }
 
-func (c *TestWriteClient) Store(_ context.Context, req []byte) error {
+func (c *TestWriteClient) Store(_ context.Context, req []byte) (wf WriteFeedback, _ error) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 	// nil buffers are ok for snappy, ignore cast error.
@@ -725,12 +725,12 @@ func (c *TestWriteClient) Store(_ context.Context, req []byte) error {
 	reqBuf, err := snappy.Decode(c.buf, req)
 	c.buf = reqBuf
 	if err != nil {
-		return err
+		return wf, err
 	}
 
 	var reqProto prompb.WriteRequest
 	if err := proto.Unmarshal(reqBuf, &reqProto); err != nil {
-		return err
+		return wf, err
 	}
 	count := 0
 	for _, ts := range reqProto.Timeseries {
@@ -761,7 +761,7 @@ func (c *TestWriteClient) Store(_ context.Context, req []byte) error {
 
 	c.writesReceived++
 
-	return nil
+	return wf, nil
 }
 
 func (c *TestWriteClient) Name() string {
@@ -784,10 +784,10 @@ func NewTestBlockedWriteClient() *TestBlockingWriteClient {
 	return &TestBlockingWriteClient{}
 }
 
-func (c *TestBlockingWriteClient) Store(ctx context.Context, _ []byte) error {
+func (c *TestBlockingWriteClient) Store(ctx context.Context, _ []byte) (WriteFeedback, error) {
 	c.numCalls.Inc()
 	<-ctx.Done()
-	return nil
+	return WriteFeedback{}, nil
 }
 
 func (c *TestBlockingWriteClient) NumCalls() uint64 {
@@ -805,10 +805,12 @@ func (c *TestBlockingWriteClient) Endpoint() string {
 // For benchmarking the send and not the receive side.
 type NopWriteClient struct{}
 
-func NewNopWriteClient() *NopWriteClient                            { return &NopWriteClient{} }
-func (c *NopWriteClient) Store(_ context.Context, req []byte) error { return nil }
-func (c *NopWriteClient) Name() string                              { return "nopwriteclient" }
-func (c *NopWriteClient) Endpoint() string                          { return "http://test-remote.com/1234" }
+func NewNopWriteClient() *NopWriteClient { return &NopWriteClient{} }
+func (c *NopWriteClient) Store(context.Context, []byte) (WriteFeedback, error) {
+	return WriteFeedback{}, nil
+}
+func (c *NopWriteClient) Name() string     { return "nopwriteclient" }
+func (c *NopWriteClient) Endpoint() string { return "http://test-remote.com/1234" }
 
 func BenchmarkSampleSend(b *testing.B) {
 	// Send one sample per series, which is the typical remote_write case

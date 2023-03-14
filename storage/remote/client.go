@@ -186,12 +186,12 @@ type RecoverableError struct {
 
 // Store sends a batch of samples to the HTTP endpoint, the request is the proto marshalled
 // and encoded bytes from codec.go.
-func (c *Client) Store(ctx context.Context, req []byte) error {
+func (c *Client) Store(ctx context.Context, req []byte) (wf WriteFeedback, _ error) {
 	httpReq, err := http.NewRequest("POST", c.url.String(), bytes.NewReader(req))
 	if err != nil {
 		// Errors from NewRequest are from unparsable URLs, so are not
 		// recoverable.
-		return err
+		return wf, err
 	}
 
 	httpReq.Header.Add("Content-Encoding", "snappy")
@@ -208,7 +208,7 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 	if err != nil {
 		// Errors from Client.Do are from (for example) network errors, so are
 		// recoverable.
-		return RecoverableError{err, defaultBackoff}
+		return wf, RecoverableError{err, defaultBackoff}
 	}
 	defer func() {
 		io.Copy(io.Discard, httpResp.Body)
@@ -224,12 +224,14 @@ func (c *Client) Store(ctx context.Context, req []byte) error {
 		err = fmt.Errorf("server returned HTTP status %s: %s", httpResp.Status, line)
 	}
 	if httpResp.StatusCode/100 == 5 {
-		return RecoverableError{err, defaultBackoff}
+		return wf, RecoverableError{err, defaultBackoff}
 	}
 	if c.retryOnRateLimit && httpResp.StatusCode == http.StatusTooManyRequests {
-		return RecoverableError{err, retryAfterDuration(httpResp.Header.Get("Retry-After"))}
+		return wf, RecoverableError{err, retryAfterDuration(httpResp.Header.Get("Retry-After"))}
 	}
-	return err
+
+	wf.IsSecondaryReplica = httpResp.Header.Get("X-Prometheus-Secondary-Remote-Write-Replica") == "true"
+	return wf, err
 }
 
 // retryAfterDuration returns the duration for the Retry-After header. In case of any errors, it

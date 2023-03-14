@@ -32,12 +32,24 @@ var longErrMessage = strings.Repeat("error message", maxErrMsgLen)
 
 func TestStoreHTTPErrorHandling(t *testing.T) {
 	tests := []struct {
-		code int
-		err  error
+		code        int
+		respHeaders http.Header
+		feedback    WriteFeedback
+		err         error
 	}{
 		{
 			code: 200,
 			err:  nil,
+		},
+		{
+			code: 200,
+			respHeaders: map[string][]string{
+				http.CanonicalHeaderKey("X-Prometheus-Secondary-Remote-Write-Replica"): {"true"},
+			},
+			feedback: WriteFeedback{
+				IsSecondaryReplica: true,
+			},
+			err: nil,
 		},
 		{
 			code: 300,
@@ -56,6 +68,11 @@ func TestStoreHTTPErrorHandling(t *testing.T) {
 	for _, test := range tests {
 		server := httptest.NewServer(
 			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for h, vs := range test.respHeaders {
+					for _, v := range vs {
+						w.Header().Add(h, v)
+					}
+				}
 				http.Error(w, longErrMessage, test.code)
 			}),
 		)
@@ -73,11 +90,12 @@ func TestStoreHTTPErrorHandling(t *testing.T) {
 		c, err := NewWriteClient(hash, conf)
 		require.NoError(t, err)
 
-		err = c.Store(context.Background(), []byte{})
+		wf, err := c.Store(context.Background(), []byte{})
 		if test.err != nil {
 			require.EqualError(t, err, test.err.Error())
 		} else {
 			require.NoError(t, err)
+			require.Equal(t, test.feedback, wf)
 		}
 
 		server.Close()
@@ -110,7 +128,7 @@ func TestClientRetryAfter(t *testing.T) {
 	}
 
 	c := getClient(conf)
-	err = c.Store(context.Background(), []byte{})
+	_, err = c.Store(context.Background(), []byte{})
 	_, ok := err.(RecoverableError)
 	require.False(t, ok, "Recoverable error not expected.")
 
@@ -121,7 +139,7 @@ func TestClientRetryAfter(t *testing.T) {
 	}
 
 	c = getClient(conf)
-	err = c.Store(context.Background(), []byte{})
+	_, err = c.Store(context.Background(), []byte{})
 	_, ok = err.(RecoverableError)
 	require.True(t, ok, "Recoverable error was expected.")
 }

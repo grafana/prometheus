@@ -379,12 +379,16 @@ func (m *queueManagerMetrics) unregister() {
 // WriteClient defines an interface for sending a batch of samples to an
 // external timeseries database.
 type WriteClient interface {
-	// Store stores the given samples in the remote storage.
-	Store(context.Context, []byte) error
+	// Store stores the given samples in the remote storage and returns the feedback provided by the write endpoint, if request was successful.
+	Store(context.Context, []byte) (WriteFeedback, error)
 	// Name uniquely identifies the remote storage.
 	Name() string
 	// Endpoint is the remote read or write endpoint for the storage client.
 	Endpoint() string
+}
+
+type WriteFeedback struct {
+	IsSecondaryReplica bool
 }
 
 // QueueManager manages a queue of samples to be sent to the Storage
@@ -542,7 +546,7 @@ func (t *QueueManager) sendMetadataWithBackoff(ctx context.Context, metadata []p
 		)
 
 		begin := time.Now()
-		err := t.storeClient.Store(ctx, req)
+		_, err := t.storeClient.Store(ctx, req)
 		t.metrics.sentBatchDuration.Observe(time.Since(begin).Seconds())
 
 		if err != nil {
@@ -1455,7 +1459,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 		s.qm.metrics.samplesTotal.Add(float64(sampleCount))
 		s.qm.metrics.exemplarsTotal.Add(float64(exemplarCount))
 		s.qm.metrics.histogramsTotal.Add(float64(histogramCount))
-		err := s.qm.client().Store(ctx, *buf)
+		_, err := s.qm.client().Store(ctx, *buf)
 		s.qm.metrics.sentBatchDuration.Observe(time.Since(begin).Seconds())
 
 		if err != nil {
