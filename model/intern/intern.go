@@ -29,7 +29,7 @@ import (
 
 // Shared interner
 var (
-	Global Interner = New(prometheus.DefaultRegisterer)
+	Global = New(prometheus.DefaultRegisterer)
 )
 
 // Interner is a string interner.
