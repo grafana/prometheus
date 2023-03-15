@@ -57,38 +57,36 @@ const (
 type queueManagerMetrics struct {
 	reg prometheus.Registerer
 
-	samplesTotal                      prometheus.Counter
-	exemplarsTotal                    prometheus.Counter
-	histogramsTotal                   prometheus.Counter
-	metadataTotal                     prometheus.Counter
-	failedSamplesTotal                prometheus.Counter
-	failedExemplarsTotal              prometheus.Counter
-	failedHistogramsTotal             prometheus.Counter
-	failedMetadataTotal               prometheus.Counter
-	retriedSamplesTotal               prometheus.Counter
-	retriedExemplarsTotal             prometheus.Counter
-	retriedHistogramsTotal            prometheus.Counter
-	retriedMetadataTotal              prometheus.Counter
-	droppedSamplesTotal               prometheus.Counter
-	droppedExemplarsTotal             prometheus.Counter
-	droppedHistogramsTotal            prometheus.Counter
-	enqueueRetriesTotal               prometheus.Counter
-	sentBatchDuration                 prometheus.Histogram
-	highestSentTimestamp              *maxTimestamp
-	pendingSamples                    prometheus.Gauge
-	pendingExemplars                  prometheus.Gauge
-	pendingHistograms                 prometheus.Gauge
-	shardCapacity                     prometheus.Gauge
-	numShards                         prometheus.Gauge
-	maxNumShards                      prometheus.Gauge
-	minNumShards                      prometheus.Gauge
-	desiredNumShards                  prometheus.Gauge
-	sentBytesTotal                    prometheus.Counter
-	metadataBytesTotal                prometheus.Counter
-	maxSamplesPerSend                 prometheus.Gauge
-	skippedBatchesTotal               prometheus.Counter
-	unblockedForcedFallingBehindTotal prometheus.Counter
-	isSecondaryReplica                prometheus.Gauge
+	samplesTotal           prometheus.Counter
+	exemplarsTotal         prometheus.Counter
+	histogramsTotal        prometheus.Counter
+	metadataTotal          prometheus.Counter
+	failedSamplesTotal     prometheus.Counter
+	failedExemplarsTotal   prometheus.Counter
+	failedHistogramsTotal  prometheus.Counter
+	failedMetadataTotal    prometheus.Counter
+	retriedSamplesTotal    prometheus.Counter
+	retriedExemplarsTotal  prometheus.Counter
+	retriedHistogramsTotal prometheus.Counter
+	retriedMetadataTotal   prometheus.Counter
+	droppedSamplesTotal    prometheus.Counter
+	droppedExemplarsTotal  prometheus.Counter
+	droppedHistogramsTotal prometheus.Counter
+	enqueueRetriesTotal    prometheus.Counter
+	sentBatchDuration      prometheus.Histogram
+	highestSentTimestamp   *maxTimestamp
+	pendingSamples         prometheus.Gauge
+	pendingExemplars       prometheus.Gauge
+	pendingHistograms      prometheus.Gauge
+	shardCapacity          prometheus.Gauge
+	numShards              prometheus.Gauge
+	maxNumShards           prometheus.Gauge
+	minNumShards           prometheus.Gauge
+	desiredNumShards       prometheus.Gauge
+	sentBytesTotal         prometheus.Counter
+	metadataBytesTotal     prometheus.Counter
+	maxSamplesPerSend      prometheus.Gauge
+	isSecondaryReplica     prometheus.Gauge
 }
 
 func newQueueManagerMetrics(r prometheus.Registerer, rn, e string) *queueManagerMetrics {
@@ -306,20 +304,6 @@ func newQueueManagerMetrics(r prometheus.Registerer, rn, e string) *queueManager
 		Help:        "The maximum number of samples to be sent, in a single request, to the remote storage. Note that, when sending of exemplars over remote write is enabled, exemplars count towards this limt.",
 		ConstLabels: constLabels,
 	})
-	m.skippedBatchesTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace:   namespace,
-		Subsystem:   subsystem,
-		Name:        "batches_skipped_total",
-		Help:        "Total number of batches that were skipped because their highest timestamp is older than secondary's replica falling behind objective.",
-		ConstLabels: constLabels,
-	})
-	m.unblockedForcedFallingBehindTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace:   namespace,
-		Subsystem:   subsystem,
-		Name:        "unblocked_forced_falling_behind_total",
-		Help:        "Total number times a queue waiting to forcefully fall behind has been successfully unblocked when couldn't append more samples.",
-		ConstLabels: constLabels,
-	})
 	m.isSecondaryReplica = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace:   namespace,
 		Subsystem:   subsystem,
@@ -420,10 +404,8 @@ type WriteFeedback struct {
 // indicated by the provided WriteClient. Implements writeTo interface
 // used by WAL Watcher.
 type QueueManager struct {
-	isSecondaryReplica     atomic.Bool
-	lastSecondaryTimestamp atomic.Int64
-
-	lastSendTimestamp atomic.Int64
+	isSecondaryReplica atomic.Bool
+	lastSendTimestamp  atomic.Int64
 
 	logger               log.Logger
 	flushDeadline        time.Duration
@@ -449,7 +431,6 @@ type QueueManager struct {
 	shards      *shards
 	numShards   int
 	reshardChan chan int
-	checkShards chan struct{}
 	quit        chan struct{}
 	wg          sync.WaitGroup
 
@@ -506,7 +487,6 @@ func NewQueueManager(
 
 		numShards:   cfg.MinShards,
 		reshardChan: make(chan int),
-		checkShards: make(chan struct{}),
 		quit:        make(chan struct{}),
 
 		dataIn:          samplesIn,
@@ -560,19 +540,10 @@ func (t *QueueManager) AppendMetadata(ctx context.Context, metadata []scrape.Met
 func (t *QueueManager) updateSecondaryReplica(isSecondary bool) (changed bool) {
 	changed = t.isSecondaryReplica.Swap(isSecondary) != isSecondary
 
-	if isSecondary {
-		t.lastSecondaryTimestamp.Store(time.Now().Unix())
-	}
-
 	if changed {
 		level.Debug(t.logger).Log("QueueManager.updateSecondaryReplica", "is_secondary", isSecondary)
 		if isSecondary {
 			t.metrics.isSecondaryReplica.Set(1)
-			// If changed to secondary, try to reshard to make sure we can hold enough samples in memory to fall behind.
-			select {
-			case t.checkShards <- struct{}{}:
-			default:
-			}
 		} else {
 			t.metrics.isSecondaryReplica.Set(0)
 		}
@@ -925,32 +896,24 @@ func processExternalLabels(ls, externalLabels labels.Labels) labels.Labels {
 func (t *QueueManager) updateShardsLoop() {
 	defer t.wg.Done()
 
-	maybeReshard := func() {
-		desiredShards := t.calculateDesiredShards()
-		if !t.shouldReshard(desiredShards) {
-			return
-		}
-		// Resharding can take some time, and we want this loop
-		// to stay close to shardUpdateDuration.
-		select {
-		case t.reshardChan <- desiredShards:
-			level.Info(t.logger).Log("msg", "Remote storage resharding", "from", t.numShards, "to", desiredShards)
-			t.numShards = desiredShards
-		default:
-			level.Info(t.logger).Log("msg", "Currently resharding, skipping.")
-		}
-	}
-
 	ticker := time.NewTicker(shardUpdateDuration)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			maybeReshard()
-
-		case <-t.checkShards:
-			maybeReshard()
-
+			desiredShards := t.calculateDesiredShards()
+			if !t.shouldReshard(desiredShards) {
+				continue
+			}
+			// Resharding can take some time, and we want this loop
+			// to stay close to shardUpdateDuration.
+			select {
+			case t.reshardChan <- desiredShards:
+				level.Info(t.logger).Log("msg", "Remote storage resharding", "from", t.numShards, "to", desiredShards)
+				t.numShards = desiredShards
+			default:
+				level.Info(t.logger).Log("msg", "Currently resharding, skipping.")
+			}
 		case <-t.quit:
 			return
 		}
@@ -964,12 +927,9 @@ func (t *QueueManager) shouldReshard(desiredShards int) bool {
 	}
 	// We shouldn't reshard if Prometheus hasn't been able to send to the
 	// remote endpoint successfully within some period of time.
-	minSendTime := time.Now().Add(-2 * time.Duration(t.cfg.BatchSendDeadline))
-	if t.isSecondaryReplica.Load() {
-		minSendTime = minSendTime.Add(-time.Duration(t.cfg.SecondaryReplicaFallBehindDuration))
-	}
+	minSendTimestamp := time.Now().Add(-2 * time.Duration(t.cfg.BatchSendDeadline)).Unix()
 	lsts := t.lastSendTimestamp.Load()
-	if minSendTimestamp := minSendTime.Unix(); lsts < minSendTimestamp {
+	if lsts < minSendTimestamp {
 		level.Warn(t.logger).Log("msg", "Skipping resharding, last successful send was beyond threshold", "lastSendTimestamp", lsts, "minSendTimestamp", minSendTimestamp)
 		return false
 	}
@@ -998,60 +958,8 @@ func (t *QueueManager) calculateDesiredShards() int {
 		highestSent     = t.metrics.highestSentTimestamp.Get()
 		highestRecv     = t.highestRecvTimestamp.Get()
 		delay           = highestRecv - highestSent
-
-		secondaryReplicaFallBehind = time.Duration(t.cfg.SecondaryReplicaFallBehindDuration).Seconds()
+		dataPending     = delay * dataInRate * dataKeptRatio
 	)
-
-	isSecondary := t.isSecondaryReplica.Load()
-	if isSecondary {
-		// Great, we're secondary.
-		// Our restrictions are:
-		// - We want to have enough shards to fall behind
-		// - We don't really care about under-sharding if we fulfill the previous point, because once we fall behind too much we can drop samples.
-		// - We don't want to reshard often, as resharding makes us flush, and flushing makes us catch up.
-		// - Hence, we want to reshard early.
-
-		// Our main idea will be:
-		// - Calculate the amount of shards we need to hold fall behind
-		shardsToFallBehind := int(math.Ceil(secondaryReplicaFallBehind * dataInRate / float64(t.cfg.Capacity)))
-
-		// If with current setup we have 50% overhead, don't reshard.
-		// TODO: Maybe we have too many shards? Maybe.
-		if t.numShards*3/2 >= shardsToFallBehind {
-			level.Debug(t.logger).Log("msg", "QueueManager.calculateDesiredShards: secondary, current shards are enough",
-				"dataInRate", dataInRate,
-				"currentShards", t.numShards,
-				"shardsToFallBehind", shardsToFallBehind,
-			)
-			return t.numShards
-		}
-
-		// We want to avoid resharding even if dataInRate duplicates, so *2, and we want a 50% overhead on top of that, so *3
-		newShards := shardsToFallBehind * 3
-		if newShards > t.cfg.MaxShards {
-			newShards = t.cfg.MaxShards
-		}
-		level.Debug(t.logger).Log("msg", "QueueManager.calculateDesiredShards: secondary, need more shards",
-			"dataInRate", dataInRate,
-			"currentShards", t.numShards,
-			"shardsToFallBehind", shardsToFallBehind,
-			"newShards", newShards,
-		)
-		return newShards
-	} else {
-		// We're primary, but maybe we have been secondary not so long ago?
-		// Don't automatically go crazy resharding just because suddenly the delay == secondaryReplicaFallBehind.
-		sinceLastSecondary := time.Now().Unix() - t.lastSecondaryTimestamp.Load()
-
-		// secondaryCatchupDelayAllowance is the delay we'll allow to catchup from being secondary before considering it _real delay_.
-		// This is something that is secondaryReplicaFallBehind is we've been secondary just 0 seconds ago, and will
-		// decrease to 0 when we reach the point in time when we were secondary secondaryReplicaFallBehind ago.
-		secondaryCatchupDelayAllowance := math.Max(0, secondaryReplicaFallBehind-float64(sinceLastSecondary))
-		// Adjust the delay, but never go negative.
-		delay = math.Max(0, delay-secondaryCatchupDelayAllowance)
-	}
-
-	dataPending := delay * dataInRate * dataKeptRatio
 
 	if dataOutRate <= 0 {
 		return t.numShards
@@ -1195,7 +1103,6 @@ func (s *shards) stop() {
 	// We must be able so call stop concurrently, hence we can only take the
 	// RLock here.
 	s.mtx.RLock()
-	// This will also force unblocking any queue waiting to intentionally fall behind if it's secondary.
 	close(s.softShutdown)
 	s.mtx.RUnlock()
 
@@ -1240,14 +1147,6 @@ func (s *shards) enqueue(ref chunks.HeadSeriesRef, data timeSeries) bool {
 	default:
 		appended := s.queues[shard].Append(data)
 		if !appended {
-			// Try to unblockForcedFallingBehind the queue in case it's waiting to fall behind and we don't have more space in the batches channel.
-			// Not checking whether secondary, as that probably has the same cost as just poking.
-			select {
-			case <-s.queues[shard].unblockForcedFallingBehind:
-				s.qm.metrics.unblockedForcedFallingBehindTotal.Inc()
-			default:
-				// Nothing to unblock.
-			}
 			return false
 		}
 		switch data.sType {
@@ -1276,11 +1175,6 @@ type queue struct {
 	// poolMtx covers adding and removing batches from the batchPool.
 	poolMtx   sync.Mutex
 	batchPool [][]timeSeries
-
-	// unblockForcedFallingBehind is a channel that can be consumed to force queue send the sample,
-	// instead of waiting to fall behind.
-	// This has to be used when batchQueue is full.
-	unblockForcedFallingBehind chan struct{}
 }
 
 type timeSeries struct {
@@ -1313,8 +1207,7 @@ func newQueue(batchSize, capacity int) *queue {
 		batchQueue: make(chan []timeSeries, batches),
 		// batchPool should have capacity for everything in the channel + 1 for
 		// the batch being processed.
-		batchPool:                  make([][]timeSeries, 0, batches+1),
-		unblockForcedFallingBehind: make(chan struct{}),
+		batchPool: make([][]timeSeries, 0, batches+1),
 	}
 }
 
@@ -1394,7 +1287,6 @@ func (q *queue) tryEnqueueingBatch(done <-chan struct{}) bool {
 		return false
 	default:
 		// The batchQueue is full, so we need to try again later.
-		// No need to unblock, as we should be already in a soft shutdown situation.
 		return true
 	}
 }
@@ -1478,7 +1370,7 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 			nPendingSamples, nPendingExemplars, nPendingHistograms := s.populateTimeSeries(batch, pendingData)
 			queue.ReturnForReuse(batch)
 			n := nPendingSamples + nPendingExemplars + nPendingHistograms
-			s.sendSamples(ctx, pendingData[:n], nPendingSamples, nPendingExemplars, nPendingHistograms, pBuf, &buf, queue.unblockForcedFallingBehind, s.softShutdown)
+			s.sendSamples(ctx, pendingData[:n], nPendingSamples, nPendingExemplars, nPendingHistograms, pBuf, &buf)
 
 			stop()
 			timer.Reset(time.Duration(s.qm.cfg.BatchSendDeadline))
@@ -1489,11 +1381,9 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 				nPendingSamples, nPendingExemplars, nPendingHistograms := s.populateTimeSeries(batch, pendingData)
 				n := nPendingSamples + nPendingExemplars + nPendingHistograms
 				level.Debug(s.qm.logger).Log("msg", "runShard timer ticked, sending buffered data", "samples", nPendingSamples, "exemplars", nPendingExemplars, "shard", shardNum)
-				s.sendSamples(ctx, pendingData[:n], nPendingSamples, nPendingExemplars, nPendingHistograms, pBuf, &buf, queue.unblockForcedFallingBehind, s.softShutdown)
+				s.sendSamples(ctx, pendingData[:n], nPendingSamples, nPendingExemplars, nPendingHistograms, pBuf, &buf)
 			}
-
 			queue.ReturnForReuse(batch)
-
 			timer.Reset(time.Duration(s.qm.cfg.BatchSendDeadline))
 		}
 	}
@@ -1536,15 +1426,9 @@ func (s *shards) populateTimeSeries(batch []timeSeries, pendingData []prompb.Tim
 	return nPendingSamples, nPendingExemplars, nPendingHistograms
 }
 
-func (s *shards) sendSamples(
-	ctx context.Context,
-	samples []prompb.TimeSeries,
-	sampleCount, exemplarCount, histogramCount int,
-	pBuf *proto.Buffer, buf *[]byte,
-	unblock, shutdown chan struct{},
-) {
+func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, sampleCount, exemplarCount, histogramCount int, pBuf *proto.Buffer, buf *[]byte) {
 	begin := time.Now()
-	err := s.sendSamplesWithBackoff(ctx, samples, sampleCount, exemplarCount, histogramCount, pBuf, buf, unblock, shutdown)
+	err := s.sendSamplesWithBackoff(ctx, samples, sampleCount, exemplarCount, histogramCount, pBuf, buf)
 	if err != nil {
 		level.Error(s.qm.logger).Log("msg", "non-recoverable error", "count", sampleCount, "exemplarCount", exemplarCount, "err", err)
 		s.qm.metrics.failedSamplesTotal.Add(float64(sampleCount))
@@ -1568,42 +1452,10 @@ func (s *shards) sendSamples(
 }
 
 // sendSamples to the remote storage with backoff for recoverable errors.
-func (s *shards) sendSamplesWithBackoff(
-	ctx context.Context,
-	samples []prompb.TimeSeries,
-	sampleCount, exemplarCount, histogramCount int,
-	pBuf *proto.Buffer, buf *[]byte,
-	unblock, shutdown chan struct{},
-) error {
+func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.TimeSeries, sampleCount, exemplarCount, histogramCount int, pBuf *proto.Buffer, buf *[]byte) error {
 	highest := highestTimestampSeconds(samples)
 
-	// Happy path (primary, or no HA) evaluates this check only once, and does nothing special.
 	isSecondary := s.qm.isSecondaryReplica.Load()
-	if isSecondary {
-		highestRecv := s.qm.highestRecvTimestamp.Get()
-		// If it's too old, discard it.
-		desiredFallBehind := time.Duration(s.qm.cfg.SecondaryReplicaFallBehindDuration).Seconds()
-		desiredFallBehindTimestamp := int64(highestRecv - desiredFallBehind)
-		if highest < desiredFallBehindTimestamp {
-			s.qm.metrics.skippedBatchesTotal.Inc()
-			s.qm.metrics.highestSentTimestamp.Set(float64(highest))
-			return nil
-		}
-
-		// If it's too new (more than 1 second away from desired fall behind), wait.
-		if highest-desiredFallBehindTimestamp > int64(time.Duration(s.qm.cfg.SecondaryReplicaFallBehindThreshold).Seconds()) {
-			select {
-			case unblock <- struct{}{}:
-				// Queue is full and someone is asking us to unblock this.
-			case <-shutdown:
-				// Shutting down (reshard maybe?)
-			case <-time.After(time.Duration(highest-desiredFallBehindTimestamp) * time.Second):
-			}
-			// This probably wasn't fast, we need to check again whether we're still secondary.
-			isSecondary = s.qm.isSecondaryReplica.Load()
-		}
-	}
-
 	var req []byte
 	if isSecondary {
 		req = emptyWriteRequestBytes
@@ -1648,7 +1500,6 @@ func (s *shards) sendSamplesWithBackoff(
 		s.qm.metrics.samplesTotal.Add(float64(sampleCount))
 		s.qm.metrics.exemplarsTotal.Add(float64(exemplarCount))
 		s.qm.metrics.histogramsTotal.Add(float64(histogramCount))
-
 		wf, err := s.qm.client().Store(ctx, *buf)
 		s.qm.metrics.sentBatchDuration.Observe(time.Since(begin).Seconds())
 
