@@ -1509,6 +1509,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 		}
 
 		if s.qm.updateSecondaryReplica(wf.IsSecondaryReplica) {
+			isSecondary = wf.IsSecondaryReplica
 			span.SetAttributes(attribute.Bool("new_is_secondary", wf.IsSecondaryReplica))
 			if !wf.IsSecondaryReplica {
 				req, err = buildWriteRequest(samples, nil, pBuf, *buf)
