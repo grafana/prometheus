@@ -1458,7 +1458,13 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 	var req []byte
 	if isSecondary {
 		req = emptyWriteRequestBytes
-		// Do NOT assign *buf = req here, that would overwrite our global copy of emptyWriteRequestBytes.
+		// Don't assign same slice to *buf as it's going to be reused, and we don't want to:
+		// - Next request overwrite emptyWriteRequestBytes
+		//   - Actually this won't happen, because any non-empty request will need a buffer longer than this, but still, let's do things right.
+		// - Discard the existing buffer, if any.
+		//   - If `*buf` is nil, this still works. It doesn't work with a nil `buf`, but `buf` is always non-nil here.
+		// So append on a zero-length subslice of it.
+		*buf = append((*buf)[:0], emptyWriteRequestBytes...)
 	} else {
 		// Build the WriteRequest with no metadata.
 		var err error
@@ -1499,7 +1505,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 		s.qm.metrics.samplesTotal.Add(float64(sampleCount))
 		s.qm.metrics.exemplarsTotal.Add(float64(exemplarCount))
 		s.qm.metrics.histogramsTotal.Add(float64(histogramCount))
-		wf, err := s.qm.client().Store(ctx, req)
+		wf, err := s.qm.client().Store(ctx, *buf)
 		s.qm.metrics.sentBatchDuration.Observe(time.Since(begin).Seconds())
 
 		if err != nil {
