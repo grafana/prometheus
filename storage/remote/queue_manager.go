@@ -347,6 +347,7 @@ func (m *queueManagerMetrics) register() {
 			m.sentBytesTotal,
 			m.metadataBytesTotal,
 			m.maxSamplesPerSend,
+			m.isSecondaryReplica,
 		)
 	}
 }
