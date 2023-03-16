@@ -537,8 +537,8 @@ func (t *QueueManager) AppendMetadata(ctx context.Context, metadata []scrape.Met
 
 // updateSecondaryReplica updates the secondary replica state.
 // This is thread safe and can be called from the shards
-func (t *QueueManager) updateSecondaryReplica(isSecondary bool) (changed bool) {
-	changed = t.isSecondaryReplica.Swap(isSecondary) != isSecondary
+func (t *QueueManager) updateSecondaryReplica(isSecondary bool) {
+	changed := t.isSecondaryReplica.Swap(isSecondary) != isSecondary
 
 	if changed {
 		level.Info(t.logger).Log("QueueManager.updateSecondaryReplica", "is_secondary", isSecondary)
@@ -548,12 +548,11 @@ func (t *QueueManager) updateSecondaryReplica(isSecondary bool) (changed bool) {
 			t.metrics.isSecondaryReplica.Set(0)
 		}
 	}
-
-	return changed
 }
 
 func (t *QueueManager) sendMetadataWithBackoff(ctx context.Context, metadata []prompb.MetricMetadata, pBuf *proto.Buffer) error {
 	// Build the WriteRequest with no samples.
+	// Metadata request always sends payload, because there are so few of those that we don't bother doing the primary/secondary logic.
 	req, err := buildWriteRequest(nil, metadata, pBuf, nil)
 	if err != nil {
 		return err
@@ -581,9 +580,9 @@ func (t *QueueManager) sendMetadataWithBackoff(ctx context.Context, metadata []p
 			return err
 		}
 
-		if t.updateSecondaryReplica(wf.IsSecondaryReplica) {
-			span.SetAttributes(attribute.Bool("new_is_secondary", wf.IsSecondaryReplica))
-		}
+		// Even though the metadata request doesn't care about this result,
+		// but it should update the global state.
+		t.updateSecondaryReplica(wf.IsSecondaryReplica)
 
 		return nil
 	}
@@ -1459,6 +1458,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 	var req []byte
 	if isSecondary {
 		req = emptyWriteRequestBytes
+		// Do NOT assign *buf = req here, that would overwrite our global copy of emptyWriteRequestBytes.
 	} else {
 		// Build the WriteRequest with no metadata.
 		var err error
@@ -1468,10 +1468,9 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 			// only error if marshaling the proto to bytes fails.
 			return err
 		}
+		*buf = req
 	}
-
 	reqSize := len(req)
-	*buf = req
 
 	// An anonymous function allows us to defer the completion of our per-try spans
 	// without causing a memory leak, and it has the nice effect of not propagating any
@@ -1500,7 +1499,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 		s.qm.metrics.samplesTotal.Add(float64(sampleCount))
 		s.qm.metrics.exemplarsTotal.Add(float64(exemplarCount))
 		s.qm.metrics.histogramsTotal.Add(float64(histogramCount))
-		wf, err := s.qm.client().Store(ctx, *buf)
+		wf, err := s.qm.client().Store(ctx, req)
 		s.qm.metrics.sentBatchDuration.Observe(time.Since(begin).Seconds())
 
 		if err != nil {
@@ -1508,16 +1507,26 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 			return err
 		}
 
-		if s.qm.updateSecondaryReplica(wf.IsSecondaryReplica) {
+		// We need to update the global secondary replica state, but we can't use the `changed` result from there:
+		//
+		// There are multiple requests in progress right now, and only the first one will see the global `changed` flag,
+		// but each request must resend its payload, so each request must check whether their individual isSecondary has changed.
+		// It might not have changed because there are multiple requests racing and the first one updates,
+		// but actually all of them have to re-send the request based on the decision they've taken.
+		s.qm.updateSecondaryReplica(wf.IsSecondaryReplica)
+		if isSecondary != wf.IsSecondaryReplica {
 			isSecondary = wf.IsSecondaryReplica
 			span.SetAttributes(attribute.Bool("new_is_secondary", wf.IsSecondaryReplica))
 			if !wf.IsSecondaryReplica {
+				// We're primary now.
+				// Encode the request properly, and signal a recoverable error.
 				req, err = buildWriteRequest(samples, nil, pBuf, *buf)
 				if err != nil {
 					return fmt.Errorf("can't marshal request after becoming primary replica: %w", err)
 				}
 				reqSize = len(req)
 				*buf = req
+				return RecoverableError{error: errors.New("replica changed to primary"), retryAfter: 0}
 			}
 		}
 
