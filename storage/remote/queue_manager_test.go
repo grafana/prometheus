@@ -253,6 +253,57 @@ func TestSampleDeliveryOrder(t *testing.T) {
 	c.waitForExpectedData(t)
 }
 
+func TestWriteSecondary(t *testing.T) {
+	ts := 10
+	n := config.DefaultQueueConfig.MaxSamplesPerSend * ts
+	samples := make([]record.RefSample, 0, n)
+	series := make([]record.RefSeries, 0, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("test_metric_%d", i%ts)
+		samples = append(samples, record.RefSample{
+			Ref: chunks.HeadSeriesRef(i),
+			T:   int64(i),
+			V:   float64(i),
+		})
+		series = append(series, record.RefSeries{
+			Ref:    chunks.HeadSeriesRef(i),
+			Labels: labels.FromStrings("__name__", name),
+		})
+	}
+
+	c := NewTestWriteClient()
+	c.writeFeedback = func(writeIndex int, wf *WriteFeedback) {
+		// This is flapping all the time, first request is primary, fourth will be primary, etc.
+		// But note that second request will have a primary feedback, so third (sixth, etc.) request will be always a retry of second (fifth, etc.).
+		// Since there's always just one request saying it's secondary, this should not lose any samples, as they're always retried.
+		wf.IsSecondaryReplica = writeIndex%3 == 0
+	}
+
+	c.expectSamples(samples, series)
+
+	dir := t.TempDir()
+
+	cfg := config.DefaultQueueConfig
+	mcfg := config.DefaultMetadataConfig
+
+	metrics := newQueueManagerMetrics(nil, "", "")
+	m := NewQueueManager(metrics, nil, nil, nil, dir, newEWMARate(ewmaWeight, shardUpdateDuration), cfg, mcfg, labels.EmptyLabels(), nil, c, defaultFlushDeadline, intern.New(nil), newHighestTimestampMetric(), nil, false, false)
+	m.StoreSeries(series, 0)
+
+	m.Start()
+	defer m.Stop()
+	// These should be received by the client.
+	m.Append(samples)
+	c.waitForExpectedData(t)
+	// Request pattern looks like this:
+	// 1st feedback secondary, 2nd empty feedback primary, retry, 2nd feedback primary,
+	// 3rd feedback secondary, 4th empty feedback primary, retry, 4th feedback primary,
+	// 5th feedback secondary, 6th empty feedback primary, retry, 6th feedback primary...
+	//
+	// So we receive an empty request for half of the series.
+	require.Equal(t, ts/2, c.emptyWritesReceived)
+}
+
 func TestShutdown(t *testing.T) {
 	deadline := 1 * time.Second
 	c := NewTestBlockedWriteClient()
@@ -615,18 +666,20 @@ func getSeriesNameFromRef(r record.RefSeries) string {
 }
 
 type TestWriteClient struct {
-	receivedSamples    map[string][]prompb.Sample
-	expectedSamples    map[string][]prompb.Sample
-	receivedExemplars  map[string][]prompb.Exemplar
-	expectedExemplars  map[string][]prompb.Exemplar
-	receivedHistograms map[string][]prompb.Histogram
-	expectedHistograms map[string][]prompb.Histogram
-	receivedMetadata   map[string][]prompb.MetricMetadata
-	writesReceived     int
-	withWaitGroup      bool
-	wg                 sync.WaitGroup
-	mtx                sync.Mutex
-	buf                []byte
+	receivedSamples     map[string][]prompb.Sample
+	expectedSamples     map[string][]prompb.Sample
+	receivedExemplars   map[string][]prompb.Exemplar
+	expectedExemplars   map[string][]prompb.Exemplar
+	receivedHistograms  map[string][]prompb.Histogram
+	expectedHistograms  map[string][]prompb.Histogram
+	receivedMetadata    map[string][]prompb.MetricMetadata
+	writesReceived      int
+	emptyWritesReceived int
+	writeFeedback       func(writeIndex int, wf *WriteFeedback)
+	withWaitGroup       bool
+	wg                  sync.WaitGroup
+	mtx                 sync.Mutex
+	buf                 []byte
 }
 
 func NewTestWriteClient() *TestWriteClient {
@@ -704,12 +757,18 @@ func (c *TestWriteClient) waitForExpectedData(tb testing.TB) {
 	c.wg.Wait()
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
+
+	require.Equal(tb, len(c.expectedSamples), len(c.receivedSamples))
 	for ts, expectedSamples := range c.expectedSamples {
 		require.Equal(tb, expectedSamples, c.receivedSamples[ts], ts)
 	}
+
+	require.Equal(tb, len(c.expectedExemplars), len(c.receivedExemplars))
 	for ts, expectedExemplar := range c.expectedExemplars {
 		require.Equal(tb, expectedExemplar, c.receivedExemplars[ts], ts)
 	}
+
+	require.Equal(tb, len(c.expectedHistograms), len(c.receivedHistograms))
 	for ts, expectedHistogram := range c.expectedHistograms {
 		require.Equal(tb, expectedHistogram, c.receivedHistograms[ts], ts)
 	}
@@ -759,7 +818,13 @@ func (c *TestWriteClient) Store(_ context.Context, req []byte) (wf WriteFeedback
 		c.receivedMetadata[m.MetricFamilyName] = append(c.receivedMetadata[m.MetricFamilyName], m)
 	}
 
+	if c.writeFeedback != nil {
+		c.writeFeedback(c.writesReceived, &wf)
+	}
 	c.writesReceived++
+	if len(reqProto.Timeseries) == 0 {
+		c.emptyWritesReceived++
+	}
 
 	return wf, nil
 }
