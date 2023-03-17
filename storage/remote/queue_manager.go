@@ -542,7 +542,7 @@ func (t *QueueManager) updateSecondaryReplica(isSecondary bool) {
 	changed := t.isSecondaryReplica.Swap(isSecondary) != isSecondary
 
 	if changed {
-		level.Info(t.logger).Log("QueueManager.updateSecondaryReplica", "is_secondary", isSecondary)
+		level.Info(t.logger).Log("msg", "QueueManager.updateSecondaryReplica", "is_secondary", isSecondary)
 		if isSecondary {
 			t.metrics.isSecondaryReplica.Set(1)
 		} else {
