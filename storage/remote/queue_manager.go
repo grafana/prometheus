@@ -33,6 +33,7 @@ import (
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/histogram"
+	"github.com/prometheus/prometheus/model/intern"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/relabel"
 	"github.com/prometheus/prometheus/prompb"
@@ -422,7 +423,7 @@ type QueueManager struct {
 	dataIn, dataDropped, dataOut, dataOutDuration *ewmaRate
 
 	metrics              *queueManagerMetrics
-	interner             *pool
+	interner             intern.Interner
 	highestRecvTimestamp *maxTimestamp
 }
 
@@ -444,7 +445,7 @@ func NewQueueManager(
 	relabelConfigs []*relabel.Config,
 	client WriteClient,
 	flushDeadline time.Duration,
-	interner *pool,
+	interner intern.Interner,
 	highestRecvTimestamp *maxTimestamp,
 	sm ReadyScrapeManager,
 	enableExemplarRemoteWrite bool,
@@ -805,7 +806,7 @@ func (t *QueueManager) Stop() {
 	// On shutdown, release the strings in the labels from the intern pool.
 	t.seriesMtx.Lock()
 	for _, labels := range t.seriesLabels {
-		t.releaseLabels(labels)
+		intern.Release(t.interner, labels)
 	}
 	t.seriesMtx.Unlock()
 	t.metrics.unregister()
@@ -827,13 +828,13 @@ func (t *QueueManager) StoreSeries(series []record.RefSeries, index int) {
 			t.droppedSeries[s.Ref] = struct{}{}
 			continue
 		}
-		t.internLabels(lbls)
+		intern.Intern(intern.Global, lbls)
 
 		// We should not ever be replacing a series labels in the map, but just
 		// in case we do we need to ensure we do not leak the replaced interned
 		// strings.
 		if orig, ok := t.seriesLabels[s.Ref]; ok {
-			t.releaseLabels(orig)
+			intern.Release(t.interner, orig)
 		}
 		t.seriesLabels[s.Ref] = lbls
 	}
@@ -862,7 +863,7 @@ func (t *QueueManager) SeriesReset(index int) {
 	for k, v := range t.seriesSegmentIndexes {
 		if v < index {
 			delete(t.seriesSegmentIndexes, k)
-			t.releaseLabels(t.seriesLabels[k])
+			intern.Release(t.interner, t.seriesLabels[k])
 			delete(t.seriesLabels, k)
 			delete(t.droppedSeries, k)
 		}
@@ -881,14 +882,6 @@ func (t *QueueManager) client() WriteClient {
 	t.clientMtx.RLock()
 	defer t.clientMtx.RUnlock()
 	return t.storeClient
-}
-
-func (t *QueueManager) internLabels(lbls labels.Labels) {
-	lbls.InternStrings(t.interner.intern)
-}
-
-func (t *QueueManager) releaseLabels(ls labels.Labels) {
-	ls.ReleaseStrings(t.interner.release)
 }
 
 // processExternalLabels merges externalLabels into ls. If ls contains
