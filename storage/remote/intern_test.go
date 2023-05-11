@@ -16,7 +16,7 @@
 //
 // Copyright (c) 2014 The strutil Authors. All rights reserved.
 
-package intern
+package remote
 
 import (
 	"fmt"
@@ -27,9 +27,9 @@ import (
 )
 
 func TestIntern(t *testing.T) {
-	interner := New(nil).(*pool)
+	interner := newPool()
 	testString := "TestIntern"
-	interner.Intern(testString)
+	interner.intern(testString)
 	interned, ok := interner.pool[testString]
 
 	require.Equal(t, true, ok)
@@ -37,16 +37,16 @@ func TestIntern(t *testing.T) {
 }
 
 func TestIntern_MultiRef(t *testing.T) {
-	interner := New(nil).(*pool)
+	interner := newPool()
 	testString := "TestIntern_MultiRef"
 
-	interner.Intern(testString)
+	interner.intern(testString)
 	interned, ok := interner.pool[testString]
 
 	require.Equal(t, true, ok)
 	require.Equal(t, int64(1), interned.refs.Load(), fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs.Load()))
 
-	interner.Intern(testString)
+	interner.intern(testString)
 	interned, ok = interner.pool[testString]
 
 	require.Equal(t, true, ok)
@@ -54,32 +54,32 @@ func TestIntern_MultiRef(t *testing.T) {
 }
 
 func TestIntern_DeleteRef(t *testing.T) {
-	interner := New(nil).(*pool)
+	interner := newPool()
 	testString := "TestIntern_DeleteRef"
 
-	interner.Intern(testString)
+	interner.intern(testString)
 	interned, ok := interner.pool[testString]
 
 	require.Equal(t, true, ok)
 	require.Equal(t, int64(1), interned.refs.Load(), fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs.Load()))
 
-	interner.Release(testString)
+	interner.release(testString)
 	_, ok = interner.pool[testString]
 	require.Equal(t, false, ok)
 }
 
 func TestIntern_MultiRef_Concurrent(t *testing.T) {
-	interner := New(nil).(*pool)
+	interner := newPool()
 	testString := "TestIntern_MultiRef_Concurrent"
 
-	interner.Intern(testString)
+	interner.intern(testString)
 	interned, ok := interner.pool[testString]
 	require.Equal(t, true, ok)
 	require.Equal(t, int64(1), interned.refs.Load(), fmt.Sprintf("expected refs to be 1 but it was %d", interned.refs.Load()))
 
-	go interner.Release(testString)
+	go interner.release(testString)
 
-	interner.Intern(testString)
+	interner.intern(testString)
 
 	time.Sleep(time.Millisecond)
 
