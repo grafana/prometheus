@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1470,6 +1471,16 @@ func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, s
 		s.qm.metrics.failedSamplesTotal.Add(float64(sampleCount))
 		s.qm.metrics.failedExemplarsTotal.Add(float64(exemplarCount))
 		s.qm.metrics.failedHistogramsTotal.Add(float64(histogramCount))
+
+		if strings.Contains(err.Error(), "err-mimir-exemplar-series-missing") {
+			noSampleTs := 0
+			for _, ts := range samples {
+				if len(ts.Samples) == 0 && len(ts.Histograms) == 0 && len(ts.Exemplars) > 0 {
+					noSampleTs++
+				}
+			}
+			level.Error(s.qm.logger).Log("msg", "sent series with exemplars but without samples", "count", noSampleTs)
+		}
 	}
 
 	// These counters are used to calculate the dynamic sharding, and as such
