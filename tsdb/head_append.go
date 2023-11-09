@@ -791,6 +791,8 @@ func (a *headAppender) log() error {
 		buf = rec[:0]
 		if err := a.head.wal.Log(rec); err != nil {
 			return errors.Wrap(err, "log histograms")
+		} else {
+			fmt.Printf("WAL.Log histograms: %v\n", len(a.histograms))
 		}
 	}
 	if len(a.floatHistograms) > 0 {
@@ -810,6 +812,8 @@ func (a *headAppender) log() error {
 
 		if err := a.head.wal.Log(rec); err != nil {
 			return errors.Wrap(err, "log exemplars")
+		} else {
+			fmt.Printf("WAL.Log exemplars: %v\n", len(a.exemplars))
 		}
 	}
 	return nil

@@ -1706,6 +1706,8 @@ loop:
 			if exemplarErr != nil {
 				// Since exemplar storage is still experimental, we don't fail the scrape on ingestion errors.
 				level.Debug(sl.l).Log("msg", "Error while adding exemplar in AddExemplar", "exemplar", fmt.Sprintf("%+v", e), "err", exemplarErr)
+			} else {
+				level.Debug(sl.l).Log("msg", "Added exemplar", "exemplar", fmt.Sprintf("%+v", e), "ref", fmt.Sprintf("%d", ref), "isHistogram", fmt.Sprintf("%v", isHistogram))
 			}
 			e = exemplar.Exemplar{} // reset for next time round loop
 		}

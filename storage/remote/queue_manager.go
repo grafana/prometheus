@@ -16,6 +16,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"sync"
@@ -1186,9 +1187,11 @@ func (s *shards) enqueue(ref chunks.HeadSeriesRef, data timeSeries) bool {
 		case tExemplar:
 			s.qm.metrics.pendingExemplars.Inc()
 			s.enqueuedExemplars.Inc()
+			fmt.Printf("enqueue exemplar to ref %v shard %v\n", ref, shard)
 		case tHistogram, tFloatHistogram:
 			s.qm.metrics.pendingHistograms.Inc()
 			s.enqueuedHistograms.Inc()
+			fmt.Printf("enqueue histogram to ref %v shard %v\n", ref, shard)
 		}
 		return true
 	}
