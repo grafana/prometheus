@@ -472,6 +472,23 @@ var testExpr = []struct {
 		},
 	},
 	{
+		input: ` +{"some_metric"}`,
+		expected: &UnaryExpr{
+			Op: ADD,
+			Expr: &VectorSelector{
+				Name: "some_metric",
+				LabelMatchers: []*labels.Matcher{
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "some_metric"),
+				},
+				PosRange: posrange.PositionRange{
+					Start: 2,
+					End:   17,
+				},
+			},
+			StartPos: 1,
+		},
+	},
+	{
 		input:  "",
 		fail:   true,
 		errMsg: "no expression found in input",
@@ -1694,6 +1711,20 @@ var testExpr = []struct {
 				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo:bar"),
 			},
 			PosRange: PositionRange{
+				Start: 0,
+				End:   15,
+			},
+		},
+	},
+	{
+		input: `{"foo", a="bc"}`,
+		expected: &VectorSelector{
+			Name: "foo:bar",
+			LabelMatchers: []*labels.Matcher{
+				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo"),
+				MustLabelMatcher(labels.MatchEqual, "a", "bc"),
+			},
+			PosRange: posrange.PositionRange{
 				Start: 0,
 				End:   15,
 			},
