@@ -901,6 +901,7 @@ func BenchmarkSampleSend(b *testing.B) {
 	cfg.BatchSendDeadline = model.Duration(100 * time.Millisecond)
 	cfg.MinShards = 20
 	cfg.MaxShards = 20
+	cfg.SampleAgeLimit = model.Duration(60 * time.Second)
 
 	dir := b.TempDir()
 
