@@ -105,32 +105,39 @@ func TestRemoteWriteHandlerMinimizedFormat(t *testing.T) {
 	i := 0
 	j := 0
 	k := 0
+	l := 0
 	// the reduced write request is equivalent to the write request fixture.
 	// we can use it for
-	for _, ts := range writeRequestFixture.Timeseries {
-		ls := labelProtosToLabels(ts.Labels)
+	for _, ts := range writeRequestMinimizedFixture.Timeseries {
+		ls := Uint32StrRefToLabels(writeRequestMinimizedFixture.Symbols, ts.LabelsRefs)
 		for _, s := range ts.Samples {
 			require.Equal(t, mockSample{ls, s.Timestamp, s.Value}, appendable.samples[i])
 			i++
 		}
 
 		for _, e := range ts.Exemplars {
-			exemplarLabels := labelProtosToLabels(e.Labels)
+			exemplarLabels := Uint32StrRefToLabels(writeRequestMinimizedFixture.Symbols, e.LabelsRefs)
 			require.Equal(t, mockExemplar{ls, exemplarLabels, e.Timestamp, e.Value}, appendable.exemplars[j])
 			j++
 		}
 
 		for _, hp := range ts.Histograms {
 			if hp.IsFloatHistogram() {
-				fh := FloatHistogramProtoToFloatHistogram(hp)
+				fh := FloatMinHistogramProtoToFloatHistogram(hp)
 				require.Equal(t, mockHistogram{ls, hp.Timestamp, nil, fh}, appendable.histograms[k])
 			} else {
-				h := HistogramProtoToHistogram(hp)
+				h := MinHistogramProtoToHistogram(hp)
 				require.Equal(t, mockHistogram{ls, hp.Timestamp, h, nil}, appendable.histograms[k])
 			}
 
 			k++
 		}
+
+		m := ts.Metadata
+		unit := writeRequestMinimizedFixture.Symbols[m.UnitRef]
+		help := writeRequestMinimizedFixture.Symbols[m.HelpRef]
+		require.Equal(t, mockMetadata{ls, int32(m.Type), unit, help}, appendable.metadata[l])
+		l++
 	}
 }
 
@@ -325,6 +332,7 @@ type mockAppendable struct {
 	exemplars       []mockExemplar
 	latestHistogram int64
 	histograms      []mockHistogram
+	metadata        []mockMetadata
 	commitErr       error
 }
 
@@ -346,6 +354,13 @@ type mockHistogram struct {
 	t  int64
 	h  *histogram.Histogram
 	fh *histogram.FloatHistogram
+}
+
+type mockMetadata struct {
+	l     labels.Labels
+	mtype int32
+	unit  string
+	help  string
 }
 
 func (m *mockAppendable) Appender(_ context.Context) storage.Appender {
@@ -390,9 +405,8 @@ func (m *mockAppendable) AppendHistogram(_ storage.SeriesRef, l labels.Labels, t
 	return 0, nil
 }
 
-func (m *mockAppendable) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
-	// TODO: Wire metadata in a mockAppendable field when we get around to handling metadata in remote_write.
-	// UpdateMetadata is no-op for remote write (where mockAppendable is being used to test) for now.
+func (m *mockAppendable) UpdateMetadata(_ storage.SeriesRef, l labels.Labels, mp metadata.Metadata) (storage.SeriesRef, error) {
+	m.metadata = append(m.metadata, mockMetadata{l, int32(metricTypeToProtoEquivalent(mp.Type)), mp.Unit, mp.Help})
 	return 0, nil
 }
 

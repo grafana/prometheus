@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/textparse"
 	"github.com/prometheus/prometheus/prompb"
 	writev2 "github.com/prometheus/prometheus/prompb/write/v2"
@@ -629,6 +630,13 @@ func exemplarProtoToExemplar(ep prompb.Exemplar) exemplar.Exemplar {
 	}
 }
 
+func minMetadataProtoToMetadata(mp writev2.Metadata, symbols []string) metadata.Metadata {
+	return metadata.Metadata{
+		Type: metricTypeFromProtoEquivalent(mp.Type),
+		Unit: symbols[mp.UnitRef], // TODO: check for overflow
+		Help: symbols[mp.HelpRef], // TODO: check for overflow
+	}
+}
 func minExemplarProtoToExemplar(ep writev2.Exemplar, symbols []string) exemplar.Exemplar {
 	timestamp := ep.Timestamp
 
@@ -923,6 +931,21 @@ func metricTypeToMetricTypeProto(t textparse.MetricType) prompb.MetricMetadata_M
 	}
 
 	return prompb.MetricMetadata_MetricType(v)
+}
+
+func metricTypeToProtoEquivalent(t textparse.MetricType) writev2.Metadata_MetricType {
+	mt := strings.ToUpper(string(t))
+	v, ok := writev2.Metadata_MetricType_value[mt]
+	if !ok {
+		return writev2.Metadata_UNKNOWN
+	}
+
+	return writev2.Metadata_MetricType(v)
+}
+
+func metricTypeFromProtoEquivalent(t writev2.Metadata_MetricType) textparse.MetricType {
+	mt := strings.ToLower(t.String())
+	return textparse.MetricType(mt) // TODO(@tpaschalis) a better way for this?
 }
 
 // DecodeWriteRequest from an io.Reader into a prompb.WriteRequest, handling

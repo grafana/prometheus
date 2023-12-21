@@ -35,6 +35,7 @@ import (
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/relabel"
 	"github.com/prometheus/prometheus/prompb"
 	writev2 "github.com/prometheus/prometheus/prompb/write/v2"
@@ -409,6 +410,7 @@ type QueueManager struct {
 	relabelConfigs       []*relabel.Config
 	sendExemplars        bool
 	sendNativeHistograms bool
+	sendMetadata         bool
 	watcher              *wlog.Watcher
 	metadataWatcher      *MetadataWatcher
 	// experimental feature, new remote write proto format
@@ -417,9 +419,10 @@ type QueueManager struct {
 	clientMtx   sync.RWMutex
 	storeClient WriteClient
 
-	seriesMtx     sync.Mutex // Covers seriesLabels and droppedSeries.
-	seriesLabels  map[chunks.HeadSeriesRef]labels.Labels
-	droppedSeries map[chunks.HeadSeriesRef]struct{}
+	seriesMtx      sync.Mutex // Covers seriesLabels, seriesMetadata and droppedSeries.
+	seriesLabels   map[chunks.HeadSeriesRef]labels.Labels
+	seriesMetadata map[chunks.HeadSeriesRef]*metadata.Metadata
+	droppedSeries  map[chunks.HeadSeriesRef]struct{}
 
 	seriesSegmentMtx     sync.Mutex // Covers seriesSegmentIndexes - if you also lock seriesMtx, take seriesMtx first.
 	seriesSegmentIndexes map[chunks.HeadSeriesRef]int
@@ -460,6 +463,7 @@ func NewQueueManager(
 	sm ReadyScrapeManager,
 	enableExemplarRemoteWrite bool,
 	enableNativeHistogramRemoteWrite bool,
+	enableMetadataRemoteWrite bool,
 	rwFormat RemoteWriteFormat,
 ) *QueueManager {
 	if logger == nil {
@@ -483,11 +487,13 @@ func NewQueueManager(
 		storeClient:          client,
 		sendExemplars:        enableExemplarRemoteWrite,
 		sendNativeHistograms: enableNativeHistogramRemoteWrite,
+		sendMetadata:         enableMetadataRemoteWrite,
 		// TODO: we should eventually set the format via content negotiation,
 		// so this field would be the desired format, maybe with a fallback?
 		rwFormat: rwFormat,
 
 		seriesLabels:         make(map[chunks.HeadSeriesRef]labels.Labels),
+		seriesMetadata:       make(map[chunks.HeadSeriesRef]*metadata.Metadata),
 		seriesSegmentIndexes: make(map[chunks.HeadSeriesRef]int),
 		droppedSeries:        make(map[chunks.HeadSeriesRef]struct{}),
 
@@ -505,7 +511,17 @@ func NewQueueManager(
 		highestRecvTimestamp: highestRecvTimestamp,
 	}
 
-	t.watcher = wlog.NewWatcher(watcherMetrics, readerMetrics, logger, client.Name(), t, dir, enableExemplarRemoteWrite, enableNativeHistogramRemoteWrite)
+	t.watcher = wlog.NewWatcher(watcherMetrics, readerMetrics, logger, client.Name(), t, dir, enableExemplarRemoteWrite, enableNativeHistogramRemoteWrite, enableMetadataRemoteWrite)
+
+	// The current MetadataWatcher implementation is mutually exclusive
+	// with the new approach, which stores metadata as WAL records and
+	// ships them alongside series. If both mechanisms are set, the new one
+	// takes precedence by implicitly disabling the older one.
+	if t.mcfg.Send && t.sendMetadata {
+		level.Warn(logger).Log("msg", "the 'send_metadata' and 'metadata_config.send' parameters are mutually exclusive; defaulting to use 'send_metadata'")
+		t.mcfg.Send = false
+	}
+
 	if t.mcfg.Send {
 		t.metadataWatcher = NewMetadataWatcher(logger, sm, client.Name(), t, t.mcfg.SendInterval, flushDeadline)
 	}
@@ -514,8 +530,8 @@ func NewQueueManager(
 	return t
 }
 
-// AppendMetadata sends metadata to the remote storage. Metadata is sent in batches, but is not parallelized.
-func (t *QueueManager) AppendMetadata(ctx context.Context, metadata []scrape.MetricMetadata) {
+// AppendWatcherMetadata sends metadata to the remote storage. Metadata is sent in batches, but is not parallelized.
+func (t *QueueManager) AppendWatcherMetadata(ctx context.Context, metadata []scrape.MetricMetadata) {
 	mm := make([]prompb.MetricMetadata, 0, len(metadata))
 	for _, entry := range metadata {
 		mm = append(mm, prompb.MetricMetadata{
@@ -605,6 +621,7 @@ outer:
 			t.seriesMtx.Unlock()
 			continue
 		}
+		meta := t.seriesMetadata[s.Ref]
 		t.seriesMtx.Unlock()
 		// Start with a very small backoff. This should not be t.cfg.MinBackoff
 		// as it can happen without errors, and we want to pickup work after
@@ -619,6 +636,7 @@ outer:
 			}
 			if t.shards.enqueue(s.Ref, timeSeries{
 				seriesLabels: lbls,
+				metadata:     meta,
 				timestamp:    s.T,
 				value:        s.V,
 				sType:        tSample,
@@ -658,6 +676,7 @@ outer:
 			t.seriesMtx.Unlock()
 			continue
 		}
+		meta := t.seriesMetadata[e.Ref]
 		t.seriesMtx.Unlock()
 		// This will only loop if the queues are being resharded.
 		backoff := t.cfg.MinBackoff
@@ -669,6 +688,7 @@ outer:
 			}
 			if t.shards.enqueue(e.Ref, timeSeries{
 				seriesLabels:   lbls,
+				metadata:       meta,
 				timestamp:      e.T,
 				value:          e.V,
 				exemplarLabels: e.Labels,
@@ -706,6 +726,7 @@ outer:
 			t.seriesMtx.Unlock()
 			continue
 		}
+		meta := t.seriesMetadata[h.Ref]
 		t.seriesMtx.Unlock()
 
 		backoff := model.Duration(5 * time.Millisecond)
@@ -717,6 +738,7 @@ outer:
 			}
 			if t.shards.enqueue(h.Ref, timeSeries{
 				seriesLabels: lbls,
+				metadata:     meta,
 				timestamp:    h.T,
 				histogram:    h.H,
 				sType:        tHistogram,
@@ -753,6 +775,7 @@ outer:
 			t.seriesMtx.Unlock()
 			continue
 		}
+		meta := t.seriesMetadata[h.Ref]
 		t.seriesMtx.Unlock()
 
 		backoff := model.Duration(5 * time.Millisecond)
@@ -764,6 +787,7 @@ outer:
 			}
 			if t.shards.enqueue(h.Ref, timeSeries{
 				seriesLabels:   lbls,
+				metadata:       meta,
 				timestamp:      h.T,
 				floatHistogram: h.FH,
 				sType:          tFloatHistogram,
@@ -858,6 +882,24 @@ func (t *QueueManager) StoreSeries(series []record.RefSeries, index int) {
 	}
 }
 
+// StoreMetadata keeps track of known series' metadata for lookups when sending samples to remote.
+func (t *QueueManager) StoreMetadata(meta []record.RefMetadata) {
+	if !t.sendMetadata {
+		return
+	}
+
+	t.seriesMtx.Lock()
+	defer t.seriesMtx.Unlock()
+	for _, m := range meta {
+		// TODO(@tpaschalis) Introduce and use an internMetadata method for the unit/help texts.
+		t.seriesMetadata[m.Ref] = &metadata.Metadata{
+			Type: record.ToTextparseMetricType(m.Type),
+			Unit: m.Unit,
+			Help: m.Help,
+		}
+	}
+}
+
 // UpdateSeriesSegment updates the segment number held against the series,
 // so we can trim older ones in SeriesReset.
 func (t *QueueManager) UpdateSeriesSegment(series []record.RefSeries, index int) {
@@ -883,6 +925,7 @@ func (t *QueueManager) SeriesReset(index int) {
 			delete(t.seriesSegmentIndexes, k)
 			t.releaseLabels(t.seriesLabels[k])
 			delete(t.seriesLabels, k)
+			delete(t.seriesMetadata, k)
 			delete(t.droppedSeries, k)
 		}
 	}
@@ -1107,6 +1150,7 @@ type shards struct {
 	samplesDroppedOnHardShutdown    atomic.Uint32
 	exemplarsDroppedOnHardShutdown  atomic.Uint32
 	histogramsDroppedOnHardShutdown atomic.Uint32
+	metadataDroppedOnHardShutdown   atomic.Uint32
 }
 
 // start the shards; must be called before any call to enqueue.
@@ -1135,6 +1179,7 @@ func (s *shards) start(n int) {
 	s.samplesDroppedOnHardShutdown.Store(0)
 	s.exemplarsDroppedOnHardShutdown.Store(0)
 	s.histogramsDroppedOnHardShutdown.Store(0)
+	s.metadataDroppedOnHardShutdown.Store(0)
 	for i := 0; i < n; i++ {
 		go s.runShard(hardShutdownCtx, i, newQueues[i])
 	}
@@ -1225,6 +1270,7 @@ type timeSeries struct {
 	value          float64
 	histogram      *histogram.Histogram
 	floatHistogram *histogram.FloatHistogram
+	metadata       *metadata.Metadata
 	timestamp      int64
 	exemplarLabels labels.Labels
 	// The type of series: sample, exemplar, or histogram.
@@ -1366,6 +1412,7 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 		pBufRaw []byte
 		buf     []byte
 	)
+	// TODO(@tpaschalis) Should we also raise the max if we have WAL metadata?
 	if s.qm.sendExemplars {
 		max += int(float64(max) * 0.1)
 	}
@@ -1425,7 +1472,7 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 				n := nPendingSamples + nPendingExemplars + nPendingHistograms
 				s.sendSamples(ctx, pendingData[:n], nPendingSamples, nPendingExemplars, nPendingHistograms, pBuf, &buf)
 			case MinStrings:
-				nPendingSamples, nPendingExemplars, nPendingHistograms := populateMinimizedTimeSeriesStr(&symbolTable, batch, pendingMinStrData, s.qm.sendExemplars, s.qm.sendNativeHistograms)
+				nPendingSamples, nPendingExemplars, nPendingHistograms := populateMinimizedTimeSeriesStr(&symbolTable, batch, pendingMinStrData, s.qm.sendExemplars, s.qm.sendNativeHistograms, s.qm.sendMetadata)
 				n := nPendingSamples + nPendingExemplars + nPendingHistograms
 				s.sendMinStrSamples(ctx, pendingMinStrData[:n], symbolTable.LabelsStrings(), nPendingSamples, nPendingExemplars, nPendingHistograms, &pBufRaw, &buf)
 				symbolTable.clear()
@@ -1447,7 +1494,7 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 					level.Debug(s.qm.logger).Log("msg", "runShard timer ticked, sending buffered data", "samples", nPendingSamples,
 						"exemplars", nPendingExemplars, "shard", shardNum, "histograms", nPendingHistograms)
 				case MinStrings:
-					nPendingSamples, nPendingExemplars, nPendingHistograms := populateMinimizedTimeSeriesStr(&symbolTable, batch, pendingMinStrData, s.qm.sendExemplars, s.qm.sendNativeHistograms)
+					nPendingSamples, nPendingExemplars, nPendingHistograms := populateMinimizedTimeSeriesStr(&symbolTable, batch, pendingMinStrData, s.qm.sendExemplars, s.qm.sendNativeHistograms, s.qm.sendMetadata)
 					n := nPendingSamples + nPendingExemplars + nPendingHistograms
 					s.sendMinStrSamples(ctx, pendingMinStrData[:n], symbolTable.LabelsStrings(), nPendingSamples, nPendingExemplars, nPendingHistograms, &pBufRaw, &buf)
 					symbolTable.clear()
@@ -1474,6 +1521,7 @@ func populateTimeSeries(batch []timeSeries, pendingData []prompb.TimeSeries, sen
 		// retries endlessly, so once we reach max samples, if we can never send to the endpoint we'll
 		// stop reading from the queue. This makes it safe to reference pendingSamples by index.
 		pendingData[nPending].Labels = labelsToLabelsProto(d.seriesLabels, pendingData[nPending].Labels)
+
 		switch d.sType {
 		case tSample:
 			pendingData[nPending].Samples = append(pendingData[nPending].Samples, prompb.Sample{
@@ -1605,7 +1653,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, rawReq []byte, samp
 	return err
 }
 
-func populateMinimizedTimeSeriesStr(symbolTable *rwSymbolTable, batch []timeSeries, pendingData []writev2.TimeSeries, sendExemplars, sendNativeHistograms bool) (int, int, int) {
+func populateMinimizedTimeSeriesStr(symbolTable *rwSymbolTable, batch []timeSeries, pendingData []writev2.TimeSeries, sendExemplars, sendNativeHistograms, sendMetadata bool) (int, int, int) {
 	var nPendingSamples, nPendingExemplars, nPendingHistograms int
 	for nPending, d := range batch {
 		pendingData[nPending].Samples = pendingData[nPending].Samples[:0]
@@ -1622,6 +1670,13 @@ func populateMinimizedTimeSeriesStr(symbolTable *rwSymbolTable, batch []timeSeri
 		// pendingData[nPending].Labels = labelsToLabelsProto(d.seriesLabels, pendingData[nPending].Labels)
 
 		pendingData[nPending].LabelsRefs = labelsToUint32SliceStr(d.seriesLabels, symbolTable, pendingData[nPending].LabelsRefs)
+		if sendMetadata && d.metadata != nil {
+			pendingData[nPending].Metadata = writev2.Metadata{
+				Type:    metricTypeToProtoEquivalent(d.metadata.Type),
+				HelpRef: symbolTable.RefStr(d.metadata.Help),
+				UnitRef: symbolTable.RefStr(d.metadata.Unit),
+			}
+		}
 		switch d.sType {
 		case tSample:
 			pendingData[nPending].Samples = append(pendingData[nPending].Samples, writev2.Sample{

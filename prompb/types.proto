@@ -38,7 +38,6 @@ message MetricMetadata {
   string unit = 5;
 }
 
-
 message Sample {
   double value    = 1;
   // timestamp is in ms format, see model/timestamp/timestamp.go for

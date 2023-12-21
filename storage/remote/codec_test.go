@@ -92,6 +92,10 @@ var writeRequestMinimizedFixture = func() *writev2.WriteRequest {
 	for _, s := range []string{
 		"f", "g", // 10, 11
 		"h", "i", // 12, 13
+		"help text 1", //14
+		"unit text 1", //15
+		"help text 2", //16
+		"unit text 2", //17
 	} {
 		st.RefStr(s)
 	}
@@ -103,12 +107,14 @@ var writeRequestMinimizedFixture = func() *writev2.WriteRequest {
 				Samples:    []writev2.Sample{{Value: 1, Timestamp: 0}},
 				Exemplars:  []writev2.Exemplar{{LabelsRefs: []uint32{10, 11}, Value: 1, Timestamp: 0}},
 				Histograms: []writev2.Histogram{HistogramToMinHistogramProto(0, &testHistogram), FloatHistogramToMinHistogramProto(1, testHistogram.ToFloat(nil))},
+				Metadata:   writev2.Metadata{Type: writev2.Metadata_COUNTER, HelpRef: 14, UnitRef: 15},
 			},
 			{
 				LabelsRefs: labels,
 				Samples:    []writev2.Sample{{Value: 2, Timestamp: 1}},
 				Exemplars:  []writev2.Exemplar{{LabelsRefs: []uint32{12, 13}, Value: 2, Timestamp: 1}},
 				Histograms: []writev2.Histogram{HistogramToMinHistogramProto(2, &testHistogram), FloatHistogramToMinHistogramProto(3, testHistogram.ToFloat(nil))},
+				Metadata:   writev2.Metadata{Type: writev2.Metadata_GAUGE, HelpRef: 16, UnitRef: 17},
 			},
 		},
 		Symbols: st.LabelsStrings(),
