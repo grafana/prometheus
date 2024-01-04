@@ -412,6 +412,78 @@ type GlobalConfig struct {
 	// Keep no more than this many dropped targets per job.
 	// 0 means no limit.
 	KeepDroppedTargets uint `yaml:"keep_dropped_targets,omitempty"`
+	// Allow UTF8 Metric and Label Names
+	AllowUTF8Names bool `yaml:"utf8_names,omitempty"`
+}
+
+// ScrapeProtocol represents supported protocol for scraping metrics.
+type ScrapeProtocol string
+
+// Validate returns error if given scrape protocol is not supported.
+func (s ScrapeProtocol) Validate() error {
+	if _, ok := ScrapeProtocolsHeaders[s]; !ok {
+		return fmt.Errorf("unknown scrape protocol %v, supported: %v",
+			s, func() (ret []string) {
+				for k := range ScrapeProtocolsHeaders {
+					ret = append(ret, string(k))
+				}
+				sort.Strings(ret)
+				return ret
+			}())
+	}
+	return nil
+}
+
+var (
+	PrometheusProto      ScrapeProtocol = "PrometheusProto"
+	PrometheusText0_0_4  ScrapeProtocol = "PrometheusText0.0.4"
+	OpenMetricsText0_0_1 ScrapeProtocol = "OpenMetricsText0.0.1"
+	OpenMetricsText1_0_0 ScrapeProtocol = "OpenMetricsText1.0.0"
+	UTF8NamesHeader      string         = "validchars=utf8"
+
+	ScrapeProtocolsHeaders = map[ScrapeProtocol]string{
+		PrometheusProto:      "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited",
+		PrometheusText0_0_4:  "text/plain;version=0.0.4",
+		OpenMetricsText0_0_1: "application/openmetrics-text;version=0.0.1",
+		OpenMetricsText1_0_0: "application/openmetrics-text;version=1.0.0",
+	}
+
+	// DefaultScrapeProtocols is the set of scrape protocols that will be proposed
+	// to scrape target, ordered by priority.
+	DefaultScrapeProtocols = []ScrapeProtocol{
+		OpenMetricsText1_0_0,
+		OpenMetricsText0_0_1,
+		PrometheusText0_0_4,
+	}
+
+	// DefaultProtoFirstScrapeProtocols is like DefaultScrapeProtocols, but it
+	// favors protobuf Prometheus exposition format.
+	// Used by default for certain feature-flags like
+	// "native-histograms" and "created-timestamp-zero-ingestion".
+	DefaultProtoFirstScrapeProtocols = []ScrapeProtocol{
+		PrometheusProto,
+		OpenMetricsText1_0_0,
+		OpenMetricsText0_0_1,
+		PrometheusText0_0_4,
+	}
+)
+
+// validateAcceptScrapeProtocols return errors if we see problems with accept scrape protocols option.
+func validateAcceptScrapeProtocols(sps []ScrapeProtocol) error {
+	if len(sps) == 0 {
+		return errors.New("scrape_protocols cannot be empty")
+	}
+	dups := map[string]struct{}{}
+	for _, sp := range sps {
+		if _, ok := dups[strings.ToLower(string(sp))]; ok {
+			return fmt.Errorf("duplicated protocol in scrape_protocols, got %v", sps)
+		}
+		if err := sp.Validate(); err != nil {
+			return fmt.Errorf("scrape_protocols: %w", err)
+		}
+		dups[strings.ToLower(string(sp))] = struct{}{}
+	}
+	return nil
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -520,6 +592,8 @@ type ScrapeConfig struct {
 	// Keep no more than this many dropped targets per job.
 	// 0 means no limit.
 	KeepDroppedTargets uint `yaml:"keep_dropped_targets,omitempty"`
+	// Allow UTF8 Metric and Label Names
+	AllowUTF8Names bool `yaml:"utf8_names,omitempty"`
 
 	// We cannot do proper Go type embedding below as the parser will then parse
 	// values arbitrarily into the overflow maps of further-down types.

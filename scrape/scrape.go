@@ -461,7 +461,14 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 			acceptHeader = scrapeAcceptHeaderWithProtobuf
 		}
 		var (
-			s       = &targetScraper{Target: t, client: sp.client, timeout: timeout, bodySizeLimit: bodySizeLimit, acceptHeader: acceptHeader}
+			s = &targetScraper{
+				Target:               t,
+				client:               sp.client,
+				timeout:              timeout,
+				bodySizeLimit:        bodySizeLimit,
+				acceptHeader:         acceptHeader(cfg.ScrapeProtocols, cfg.AllowUTF8Names),
+				acceptEncodingHeader: acceptEncodingHeader(enableCompression),
+			}
 			newLoop = sp.newLoop(scrapeLoopOptions{
 				target:          t,
 				scraper:         s,
@@ -577,9 +584,14 @@ func (sp *scrapePool) sync(targets []*Target) {
 			// for every target.
 			var err error
 			interval, timeout, err = t.intervalAndTimeout(interval, timeout)
-			acceptHeader := scrapeAcceptHeader
-			if sp.enableProtobufNegotiation {
-				acceptHeader = scrapeAcceptHeaderWithProtobuf
+			s := &targetScraper{
+				Target:               t,
+				client:               sp.client,
+				timeout:              timeout,
+				bodySizeLimit:        bodySizeLimit,
+				acceptHeader:         acceptHeader(sp.config.ScrapeProtocols, sp.config.AllowUTF8Names),
+				acceptEncodingHeader: acceptEncodingHeader(enableCompression),
+				metrics:              sp.metrics,
 			}
 			s := &targetScraper{Target: t, client: sp.client, timeout: timeout, bodySizeLimit: bodySizeLimit, acceptHeader: acceptHeader}
 			l := sp.newLoop(scrapeLoopOptions{
@@ -807,10 +819,32 @@ type targetScraper struct {
 
 var errBodySizeLimit = errors.New("body size limit exceeded")
 
-const (
-	scrapeAcceptHeader             = `application/openmetrics-text;version=1.0.0,application/openmetrics-text;version=0.0.1;q=0.75,text/plain;version=0.0.4;q=0.5,*/*;q=0.1`
-	scrapeAcceptHeaderWithProtobuf = `application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited,application/openmetrics-text;version=1.0.0;q=0.8,application/openmetrics-text;version=0.0.1;q=0.75,text/plain;version=0.0.4;q=0.5,*/*;q=0.1`
-)
+// acceptHeader transforms preference from the options into specific header values as
+// https://www.rfc-editor.org/rfc/rfc9110.html#name-accept defines.
+// No validation is here, we expect scrape protocols to be validated already.
+func acceptHeader(sps []config.ScrapeProtocol, allowUTF8Names bool) string {
+	var vals []string
+	weight := len(config.ScrapeProtocolsHeaders) + 1
+	for _, sp := range sps {
+		val := config.ScrapeProtocolsHeaders[sp]
+		if allowUTF8Names {
+			val += ";"+config.UTF8NamesHeader
+		}
+		val += fmt.Sprintf(";q=0.%d", weight)
+		vals = append(vals, val)
+		weight--
+	}
+	// Default match anything.
+	vals = append(vals, fmt.Sprintf("*/*;q=0.%d", weight))
+	return strings.Join(vals, ",")
+}
+
+func acceptEncodingHeader(enableCompression bool) string {
+	if enableCompression {
+		return "gzip"
+	}
+	return "identity"
+}
 
 var UserAgent = fmt.Sprintf("Prometheus/%s", version.Version)
 
