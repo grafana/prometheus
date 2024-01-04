@@ -41,7 +41,7 @@ func TestHTTPValidRefresh(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil, prometheus.NewRegistry())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -63,7 +63,7 @@ func TestHTTPValidRefresh(t *testing.T) {
 		},
 	}
 	require.Equal(t, expectedTargets, tgs)
-	require.Equal(t, 0.0, getFailureCount(d.failuresCount))
+	require.Equal(t, 0.0, getFailureCount())
 }
 
 func TestHTTPInvalidCode(t *testing.T) {
@@ -79,13 +79,13 @@ func TestHTTPInvalidCode(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil, prometheus.NewRegistry())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
 	_, err = d.Refresh(ctx)
 	require.EqualError(t, err, "server returned HTTP status 400 Bad Request")
-	require.Equal(t, 1.0, getFailureCount(d.failuresCount))
+	require.Equal(t, 1.0, getFailureCount())
 }
 
 func TestHTTPInvalidFormat(t *testing.T) {
@@ -101,16 +101,18 @@ func TestHTTPInvalidFormat(t *testing.T) {
 		RefreshInterval:  model.Duration(30 * time.Second),
 	}
 
-	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil, prometheus.NewRegistry())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
 	_, err = d.Refresh(ctx)
 	require.EqualError(t, err, `unsupported content type "text/plain; charset=utf-8"`)
-	require.Equal(t, 1.0, getFailureCount(d.failuresCount))
+	require.Equal(t, 1.0, getFailureCount())
 }
 
-func getFailureCount(failuresCount prometheus.Counter) float64 {
+var lastFailureCount float64
+
+func getFailureCount() float64 {
 	failureChan := make(chan prometheus.Metric)
 
 	go func() {
@@ -127,7 +129,10 @@ func getFailureCount(failuresCount prometheus.Counter) float64 {
 		metric.Write(&counter)
 	}
 
-	return *counter.Counter.Value
+	// account for failures in prior tests
+	count := *counter.Counter.Value - lastFailureCount
+	lastFailureCount = *counter.Counter.Value
+	return count
 }
 
 func TestContentTypeRegex(t *testing.T) {
@@ -412,7 +417,7 @@ func TestSourceDisappeared(t *testing.T) {
 		URL:              ts.URL,
 		RefreshInterval:  model.Duration(1 * time.Second),
 	}
-	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil, prometheus.NewRegistry())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger(), nil)
 	require.NoError(t, err)
 	for _, test := range cases {
 		ctx := context.Background()

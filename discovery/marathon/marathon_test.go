@@ -21,7 +21,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 
 	"github.com/prometheus/prometheus/discovery/targetgroup"
@@ -37,7 +36,7 @@ func testConfig() SDConfig {
 }
 
 func testUpdateServices(client appListClient) ([]*targetgroup.Group, error) {
-	md, err := NewDiscovery(testConfig(), nil, prometheus.NewRegistry())
+	md, err := NewDiscovery(testConfig(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +129,7 @@ func TestMarathonSDSendGroup(t *testing.T) {
 }
 
 func TestMarathonSDRemoveApp(t *testing.T) {
-	md, err := NewDiscovery(testConfig(), nil, prometheus.NewRegistry())
+	md, err := NewDiscovery(testConfig(), nil)
 	if err != nil {
 		t.Fatalf("%s", err)
 	}

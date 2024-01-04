@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
@@ -123,8 +122,7 @@ func TestDiscoverer(t *testing.T) {
 	conf, _ := getMockConf("vps")
 	logger := testutil.NewLogger(t)
 	_, err := conf.NewDiscoverer(discovery.DiscovererOptions{
-		Logger:     logger,
-		Registerer: prometheus.NewRegistry(),
+		Logger: logger,
 	})
 
 	require.NoError(t, err)

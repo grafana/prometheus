@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 
@@ -84,7 +83,7 @@ func (*SDConfig) Name() string { return "marathon" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *SDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return NewDiscovery(*c, opts.Logger, opts.Registerer)
+	return NewDiscovery(*c, opts.Logger)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -133,7 +132,7 @@ type Discovery struct {
 }
 
 // NewDiscovery returns a new Marathon Discovery.
-func NewDiscovery(conf SDConfig, logger log.Logger, reg prometheus.Registerer) (*Discovery, error) {
+func NewDiscovery(conf SDConfig, logger log.Logger) (*Discovery, error) {
 	rt, err := config.NewRoundTripperFromConfig(conf.HTTPClientConfig, "marathon_sd")
 	if err != nil {
 		return nil, err
@@ -155,13 +154,10 @@ func NewDiscovery(conf SDConfig, logger log.Logger, reg prometheus.Registerer) (
 		appsClient: fetchApps,
 	}
 	d.Discovery = refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   logger,
-			Mech:     "marathon",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: d.refresh,
-			Registry: reg,
-		},
+		logger,
+		"marathon",
+		time.Duration(conf.RefreshInterval),
+		d.refresh,
 	)
 	return d, nil
 }

@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/go-kit/log"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +46,7 @@ func TestDigitalOceanSDRefresh(t *testing.T) {
 
 	cfg := DefaultSDConfig
 	cfg.HTTPClientConfig.BearerToken = tokenID
-	d, err := NewDiscovery(&cfg, log.NewNopLogger(), prometheus.NewRegistry())
+	d, err := NewDiscovery(&cfg, log.NewNopLogger())
 	require.NoError(t, err)
 	endpoint, err := url.Parse(sdmock.Mock.Endpoint())
 	require.NoError(t, err)

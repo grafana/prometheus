@@ -26,7 +26,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/go-kit/log"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 
@@ -81,7 +80,7 @@ func (*DockerSDConfig) Name() string { return "docker" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *DockerSDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return NewDockerDiscovery(c, opts.Logger, opts.Registerer)
+	return NewDockerDiscovery(c, opts.Logger)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -115,7 +114,7 @@ type DockerDiscovery struct {
 }
 
 // NewDockerDiscovery returns a new DockerDiscovery which periodically refreshes its targets.
-func NewDockerDiscovery(conf *DockerSDConfig, logger log.Logger, reg prometheus.Registerer) (*DockerDiscovery, error) {
+func NewDockerDiscovery(conf *DockerSDConfig, logger log.Logger) (*DockerDiscovery, error) {
 	var err error
 
 	d := &DockerDiscovery{
@@ -166,13 +165,10 @@ func NewDockerDiscovery(conf *DockerSDConfig, logger log.Logger, reg prometheus.
 	}
 
 	d.Discovery = refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   logger,
-			Mech:     "docker",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: d.refresh,
-			Registry: reg,
-		},
+		logger,
+		"docker",
+		time.Duration(conf.RefreshInterval),
+		d.refresh,
 	)
 	return d, nil
 }

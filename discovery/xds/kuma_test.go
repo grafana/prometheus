@@ -21,7 +21,6 @@ import (
 	"time"
 
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -108,7 +107,7 @@ func getKumaMadsV1DiscoveryResponse(resources ...*MonitoringAssignment) (*v3.Dis
 }
 
 func newKumaTestHTTPDiscovery(c KumaSDConfig) (*fetchDiscovery, error) {
-	kd, err := NewKumaHTTPDiscovery(&c, nopLogger, prometheus.NewRegistry())
+	kd, err := NewKumaHTTPDiscovery(&c, nopLogger)
 	if err != nil {
 		return nil, err
 	}

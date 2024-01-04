@@ -29,8 +29,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/prometheus/prometheus/discovery"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/util/testutil"
@@ -51,25 +49,13 @@ func makeDiscoveryWithVersion(role Role, nsDiscovery NamespaceDiscovery, k8sVer 
 	fakeDiscovery, _ := clientset.Discovery().(*fakediscovery.FakeDiscovery)
 	fakeDiscovery.FakedServerVersion = &version.Info{GitVersion: k8sVer}
 
-	d := &Discovery{
+	return &Discovery{
 		client:             clientset,
 		logger:             log.NewNopLogger(),
 		role:               role,
 		namespaceDiscovery: &nsDiscovery,
 		ownNamespace:       "own-ns",
-		eventCount: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: discovery.KubernetesMetricsNamespace,
-				Name:      "events_total",
-				Help:      "The number of Kubernetes events handled.",
-			},
-			[]string{"role", "event"},
-		),
-	}
-
-	d.metricRegisterer = discovery.NewMetricRegisterer(prometheus.NewRegistry(), []prometheus.Collector{d.eventCount})
-
-	return d, clientset
+	}, clientset
 }
 
 // makeDiscoveryWithMetadata creates a kubernetes.Discovery instance with the specified metadata config.

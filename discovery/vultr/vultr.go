@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/version"
@@ -79,7 +78,7 @@ func (*SDConfig) Name() string { return "vultr" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *SDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return NewDiscovery(c, opts.Logger, opts.Registerer)
+	return NewDiscovery(c, opts.Logger)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -107,7 +106,7 @@ type Discovery struct {
 }
 
 // NewDiscovery returns a new Discovery which periodically refreshes its targets.
-func NewDiscovery(conf *SDConfig, logger log.Logger, reg prometheus.Registerer) (*Discovery, error) {
+func NewDiscovery(conf *SDConfig, logger log.Logger) (*Discovery, error) {
 	d := &Discovery{
 		port: conf.Port,
 	}
@@ -129,13 +128,10 @@ func NewDiscovery(conf *SDConfig, logger log.Logger, reg prometheus.Registerer) 
 	}
 
 	d.Discovery = refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   logger,
-			Mech:     "vultr",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: d.refresh,
-			Registry: reg,
-		},
+		logger,
+		"vultr",
+		time.Duration(conf.RefreshInterval),
+		d.refresh,
 	)
 	return d, nil
 }

@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
@@ -80,7 +79,7 @@ var (
 )
 
 func newTritonDiscovery(c SDConfig) (*Discovery, error) {
-	return New(nil, &c, prometheus.NewRegistry())
+	return New(nil, &c)
 }
 
 func TestTritonSDNew(t *testing.T) {

@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -36,6 +35,12 @@ const (
 	NodeLegacyHostIP = "LegacyHostIP"
 )
 
+var (
+	nodeAddCount    = eventCount.WithLabelValues("node", "add")
+	nodeUpdateCount = eventCount.WithLabelValues("node", "update")
+	nodeDeleteCount = eventCount.WithLabelValues("node", "delete")
+)
+
 // Node discovers Kubernetes nodes.
 type Node struct {
 	logger   log.Logger
@@ -45,22 +50,11 @@ type Node struct {
 }
 
 // NewNode returns a new node discovery.
-func NewNode(l log.Logger, inf cache.SharedInformer, eventCount *prometheus.CounterVec) *Node {
+func NewNode(l log.Logger, inf cache.SharedInformer) *Node {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
-
-	nodeAddCount := eventCount.WithLabelValues(RoleNode.String(), MetricLabelRoleAdd)
-	nodeUpdateCount := eventCount.WithLabelValues(RoleNode.String(), MetricLabelRoleUpdate)
-	nodeDeleteCount := eventCount.WithLabelValues(RoleNode.String(), MetricLabelRoleDelete)
-
-	n := &Node{
-		logger:   l,
-		informer: inf,
-		store:    inf.GetStore(),
-		queue:    workqueue.NewNamed(RoleNode.String()),
-	}
-
+	n := &Node{logger: l, informer: inf, store: inf.GetStore(), queue: workqueue.NewNamed("node")}
 	_, err := n.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(o interface{}) {
 			nodeAddCount.Inc()

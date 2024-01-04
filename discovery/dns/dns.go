@@ -49,14 +49,30 @@ const (
 	namespace = "prometheus"
 )
 
-// DefaultSDConfig is the default DNS SD configuration.
-var DefaultSDConfig = SDConfig{
-	RefreshInterval: model.Duration(30 * time.Second),
-	Type:            "SRV",
-}
+var (
+	dnsSDLookupsCount = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "sd_dns_lookups_total",
+			Help:      "The number of DNS-SD lookups.",
+		})
+	dnsSDLookupFailuresCount = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "sd_dns_lookup_failures_total",
+			Help:      "The number of DNS-SD lookup failures.",
+		})
+
+	// DefaultSDConfig is the default DNS SD configuration.
+	DefaultSDConfig = SDConfig{
+		RefreshInterval: model.Duration(30 * time.Second),
+		Type:            "SRV",
+	}
+)
 
 func init() {
 	discovery.RegisterConfig(&SDConfig{})
+	prometheus.MustRegister(dnsSDLookupFailuresCount, dnsSDLookupsCount)
 }
 
 // SDConfig is the configuration for DNS based service discovery.
@@ -72,7 +88,7 @@ func (*SDConfig) Name() string { return "dns" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *SDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return NewDiscovery(*c, opts.Logger, opts.Registerer)
+	return NewDiscovery(*c, opts.Logger), nil
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
@@ -102,18 +118,16 @@ func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // the Discoverer interface.
 type Discovery struct {
 	*refresh.Discovery
-	names                    []string
-	port                     int
-	qtype                    uint16
-	logger                   log.Logger
-	dnsSDLookupsCount        prometheus.Counter
-	dnsSDLookupFailuresCount prometheus.Counter
+	names  []string
+	port   int
+	qtype  uint16
+	logger log.Logger
 
 	lookupFn func(name string, qtype uint16, logger log.Logger) (*dns.Msg, error)
 }
 
 // NewDiscovery returns a new Discovery which periodically refreshes its targets.
-func NewDiscovery(conf SDConfig, logger log.Logger, reg prometheus.Registerer) (*Discovery, error) {
+func NewDiscovery(conf SDConfig, logger log.Logger) *Discovery {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -137,32 +151,14 @@ func NewDiscovery(conf SDConfig, logger log.Logger, reg prometheus.Registerer) (
 		port:     conf.Port,
 		logger:   logger,
 		lookupFn: lookupWithSearchPath,
-		dnsSDLookupsCount: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "sd_dns_lookups_total",
-				Help:      "The number of DNS-SD lookups.",
-			}),
-		dnsSDLookupFailuresCount: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "sd_dns_lookup_failures_total",
-				Help:      "The number of DNS-SD lookup failures.",
-			}),
 	}
-
 	d.Discovery = refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   logger,
-			Mech:     "dns",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: d.refresh,
-			Registry: prometheus.NewRegistry(),
-			Metrics:  []prometheus.Collector{d.dnsSDLookupsCount, d.dnsSDLookupFailuresCount},
-		},
+		logger,
+		"dns",
+		time.Duration(conf.RefreshInterval),
+		d.refresh,
 	)
-
-	return d, nil
+	return d
 }
 
 func (d *Discovery) refresh(ctx context.Context) ([]*targetgroup.Group, error) {
@@ -195,9 +191,9 @@ func (d *Discovery) refresh(ctx context.Context) ([]*targetgroup.Group, error) {
 
 func (d *Discovery) refreshOne(ctx context.Context, name string, ch chan<- *targetgroup.Group) error {
 	response, err := d.lookupFn(name, d.qtype, d.logger)
-	d.dnsSDLookupsCount.Inc()
+	dnsSDLookupsCount.Inc()
 	if err != nil {
-		d.dnsSDLookupFailuresCount.Inc()
+		dnsSDLookupFailuresCount.Inc()
 		return err
 	}
 

@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -66,15 +65,7 @@ func TestRefresh(t *testing.T) {
 		return nil, fmt.Errorf("some error")
 	}
 	interval := time.Millisecond
-	d := NewDiscovery(
-		Options{
-			Logger:   nil,
-			Mech:     "test",
-			Interval: interval,
-			RefreshF: refresh,
-			Registry: prometheus.NewRegistry(),
-		},
-	)
+	d := NewDiscovery(nil, "test", interval, refresh)
 
 	ch := make(chan []*targetgroup.Group)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/mwitkow/go-conntrack"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 
@@ -75,7 +74,7 @@ func (*SDConfig) Name() string { return "triton" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *SDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return New(opts.Logger, c, opts.Registerer)
+	return New(opts.Logger, c)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -139,7 +138,7 @@ type Discovery struct {
 }
 
 // New returns a new Discovery which periodically refreshes its targets.
-func New(logger log.Logger, conf *SDConfig, reg prometheus.Registerer) (*Discovery, error) {
+func New(logger log.Logger, conf *SDConfig) (*Discovery, error) {
 	tls, err := config.NewTLSConfig(&conf.TLSConfig)
 	if err != nil {
 		return nil, err
@@ -160,13 +159,10 @@ func New(logger log.Logger, conf *SDConfig, reg prometheus.Registerer) (*Discove
 		sdConfig: conf,
 	}
 	d.Discovery = refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   logger,
-			Mech:     "triton",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: d.refresh,
-			Registry: reg,
-		},
+		logger,
+		"triton",
+		time.Duration(conf.RefreshInterval),
+		d.refresh,
 	)
 	return d, nil
 }

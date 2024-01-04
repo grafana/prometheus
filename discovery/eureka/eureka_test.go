@@ -20,7 +20,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 
@@ -36,7 +35,7 @@ func testUpdateServices(respHandler http.HandlerFunc) ([]*targetgroup.Group, err
 		Server: ts.URL,
 	}
 
-	md, err := NewDiscovery(&conf, nil, prometheus.NewRegistry())
+	md, err := NewDiscovery(&conf, nil)
 	if err != nil {
 		return nil, err
 	}

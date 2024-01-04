@@ -24,7 +24,6 @@ import (
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack"
 	"github.com/mwitkow/go-conntrack"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 
@@ -71,7 +70,7 @@ func (*SDConfig) Name() string { return "openstack" }
 
 // NewDiscoverer returns a Discoverer for the Config.
 func (c *SDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (discovery.Discoverer, error) {
-	return NewDiscovery(c, opts.Logger, opts.Registerer)
+	return NewDiscovery(c, opts.Logger)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -135,19 +134,16 @@ type refresher interface {
 }
 
 // NewDiscovery returns a new OpenStack Discoverer which periodically refreshes its targets.
-func NewDiscovery(conf *SDConfig, l log.Logger, reg prometheus.Registerer) (*refresh.Discovery, error) {
+func NewDiscovery(conf *SDConfig, l log.Logger) (*refresh.Discovery, error) {
 	r, err := newRefresher(conf, l)
 	if err != nil {
 		return nil, err
 	}
 	return refresh.NewDiscovery(
-		refresh.Options{
-			Logger:   l,
-			Mech:     "openstack",
-			Interval: time.Duration(conf.RefreshInterval),
-			RefreshF: r.refresh,
-			Registry: reg,
-		},
+		l,
+		"openstack",
+		time.Duration(conf.RefreshInterval),
+		r.refresh,
 	), nil
 }
 

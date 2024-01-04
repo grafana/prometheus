@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/discovery"
@@ -38,7 +37,7 @@ type sdCheckResult struct {
 }
 
 // CheckSD performs service discovery for the given job name and reports the results.
-func CheckSD(sdConfigFiles, sdJobName string, sdTimeout time.Duration, noDefaultScrapePort bool, registerer prometheus.Registerer) int {
+func CheckSD(sdConfigFiles, sdJobName string, sdTimeout time.Duration, noDefaultScrapePort bool) int {
 	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 
 	cfg, err := config.LoadFile(sdConfigFiles, false, false, logger)
@@ -78,7 +77,7 @@ func CheckSD(sdConfigFiles, sdJobName string, sdTimeout time.Duration, noDefault
 	defer cancel()
 
 	for _, cfg := range scrapeConfig.ServiceDiscoveryConfigs {
-		d, err := cfg.NewDiscoverer(discovery.DiscovererOptions{Logger: logger, Registerer: registerer})
+		d, err := cfg.NewDiscoverer(discovery.DiscovererOptions{Logger: logger})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Could not create new discoverer", err)
 			return failureExitCode

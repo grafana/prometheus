@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -144,7 +143,7 @@ func (t *testRunner) run(files ...string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.cancelSD = cancel
 	go func() {
-		d, err := NewDiscovery(
+		NewDiscovery(
 			&SDConfig{
 				Files: files,
 				// Setting a high refresh interval to make sure that the tests only
@@ -152,11 +151,7 @@ func (t *testRunner) run(files ...string) {
 				RefreshInterval: model.Duration(1 * time.Hour),
 			},
 			nil,
-			prometheus.NewRegistry(),
-		)
-		require.NoError(t, err)
-
-		d.Run(ctx, t.ch)
+		).Run(ctx, t.ch)
 	}()
 }
 

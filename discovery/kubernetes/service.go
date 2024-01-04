@@ -22,13 +22,18 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/prometheus/prometheus/discovery/targetgroup"
+)
+
+var (
+	svcAddCount    = eventCount.WithLabelValues("service", "add")
+	svcUpdateCount = eventCount.WithLabelValues("service", "update")
+	svcDeleteCount = eventCount.WithLabelValues("service", "delete")
 )
 
 // Service implements discovery of Kubernetes services.
@@ -40,22 +45,11 @@ type Service struct {
 }
 
 // NewService returns a new service discovery.
-func NewService(l log.Logger, inf cache.SharedInformer, eventCount *prometheus.CounterVec) *Service {
+func NewService(l log.Logger, inf cache.SharedInformer) *Service {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
-
-	svcAddCount := eventCount.WithLabelValues(RoleService.String(), MetricLabelRoleAdd)
-	svcUpdateCount := eventCount.WithLabelValues(RoleService.String(), MetricLabelRoleUpdate)
-	svcDeleteCount := eventCount.WithLabelValues(RoleService.String(), MetricLabelRoleDelete)
-
-	s := &Service{
-		logger:   l,
-		informer: inf,
-		store:    inf.GetStore(),
-		queue:    workqueue.NewNamed(RoleService.String()),
-	}
-
+	s := &Service{logger: l, informer: inf, store: inf.GetStore(), queue: workqueue.NewNamed("service")}
 	_, err := s.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(o interface{}) {
 			svcAddCount.Inc()

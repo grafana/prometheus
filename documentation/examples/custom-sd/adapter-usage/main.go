@@ -268,11 +268,6 @@ func main() {
 	if err != nil {
 		fmt.Println("err: ", err)
 	}
-
-	if err != nil {
-		level.Error(logger).Log("msg", "failed to create discovery metrics", "err", err)
-		os.Exit(1)
-	}
 	sdAdapter := adapter.NewAdapter(ctx, *outputFile, "exampleSD", disc, logger)
 	sdAdapter.Run()
 
