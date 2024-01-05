@@ -205,9 +205,8 @@ func (c *flagConfig) setFeatureListOptions(logger log.Logger) error {
 				c.scrape.EnableProtobufNegotiation = true
 				level.Info(logger).Log("msg", "Experimental native histogram support enabled.")
 			case "utf8-names":
-				config.DefaultConfig.GlobalConfig.AllowUTF8Names = true
-				config.DefaultGlobalConfig.AllowUTF8Names = true
 				model.NameValidationScheme = model.UTF8Validation
+				level.Info(logger).Log("msg", "Experimental utf8 support enabled")
 			case "":
 				continue
 			case "promql-at-modifier", "promql-negative-offset":
