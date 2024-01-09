@@ -2678,9 +2678,7 @@ func TestUTF8TargetScraperScrapeOK(t *testing.T) {
 		}
 		var buf bytes.Buffer
 
-		resp, err := ts.scrape(context.Background())
-		require.NoError(t, err)
-		contentType, err := ts.readResponse(context.Background(), resp, &buf)
+		contentType, err := ts.scrape(context.Background(), &buf)
 		require.NoError(t, err)
 		require.Equal(t, "text/plain; version=1.0.0; validchars=utf8", contentType)
 		require.Equal(t, `{"metric.a"} 1
@@ -2813,7 +2811,6 @@ func TestTargetScraperBodySizeLimit(t *testing.T) {
 		client:        http.DefaultClient,
 		bodySizeLimit: bodySizeLimit,
 		acceptHeader:  acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, false),
-		metrics:       newTestScrapeMetrics(t),
 	}
 	var buf bytes.Buffer
 

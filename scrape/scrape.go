@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -437,9 +438,10 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 			labelNameLengthLimit:  int(sp.config.LabelNameLengthLimit),
 			labelValueLengthLimit: int(sp.config.LabelValueLengthLimit),
 		}
-		honorLabels     = sp.config.HonorLabels
-		honorTimestamps = sp.config.HonorTimestamps
-		mrc             = sp.config.MetricRelabelConfigs
+		honorLabels       = sp.config.HonorLabels
+		honorTimestamps   = sp.config.HonorTimestamps
+		enableCompression = sp.config.EnableCompression
+		mrc               = sp.config.MetricRelabelConfigs
 	)
 
 	sp.targetMtx.Lock()
@@ -456,10 +458,6 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 
 		t := sp.activeTargets[fp]
 		interval, timeout, err := t.intervalAndTimeout(interval, timeout)
-		acceptHeader := scrapeAcceptHeader
-		if sp.enableProtobufNegotiation {
-			acceptHeader = scrapeAcceptHeaderWithProtobuf
-		}
 		var (
 			s = &targetScraper{
 				Target:               t,
@@ -570,6 +568,7 @@ func (sp *scrapePool) sync(targets []*Target) {
 		}
 		honorLabels             = sp.config.HonorLabels
 		honorTimestamps         = sp.config.HonorTimestamps
+		enableCompression       = sp.config.EnableCompression
 		mrc                     = sp.config.MetricRelabelConfigs
 		scrapeClassicHistograms = sp.config.ScrapeClassicHistograms
 	)
@@ -591,9 +590,7 @@ func (sp *scrapePool) sync(targets []*Target) {
 				bodySizeLimit:        bodySizeLimit,
 				acceptHeader:         acceptHeader(sp.config.ScrapeProtocols, sp.config.AllowUTF8Names),
 				acceptEncodingHeader: acceptEncodingHeader(enableCompression),
-				metrics:              sp.metrics,
 			}
-			s := &targetScraper{Target: t, client: sp.client, timeout: timeout, bodySizeLimit: bodySizeLimit, acceptHeader: acceptHeader}
 			l := sp.newLoop(scrapeLoopOptions{
 				target:                  t,
 				scraper:                 s,
@@ -813,8 +810,9 @@ type targetScraper struct {
 	gzipr *gzip.Reader
 	buf   *bufio.Reader
 
-	bodySizeLimit int64
-	acceptHeader  string
+	bodySizeLimit        int64
+	acceptHeader         string
+	acceptEncodingHeader string
 }
 
 var errBodySizeLimit = errors.New("body size limit exceeded")
@@ -828,7 +826,7 @@ func acceptHeader(sps []config.ScrapeProtocol, allowUTF8Names bool) string {
 	for _, sp := range sps {
 		val := config.ScrapeProtocolsHeaders[sp]
 		if allowUTF8Names {
-			val += ";"+config.UTF8NamesHeader
+			val += ";" + config.UTF8NamesHeader
 		}
 		val += fmt.Sprintf(";q=0.%d", weight)
 		vals = append(vals, val)
