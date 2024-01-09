@@ -137,6 +137,8 @@ type Options struct {
 	EnableProtobufNegotiation bool
 	// Option to increase the interval used by scrape manager to throttle target groups updates.
 	DiscoveryReloadInterval model.Duration
+	// if UTF8 is not allowed, use this method 
+	NameEscapingScheme string
 
 	// Optional HTTP client options to use when scraping.
 	HTTPClientOptions []config_util.HTTPClientOption
@@ -206,6 +208,15 @@ func (m *Manager) reloader() {
 
 func (m *Manager) reload() {
 	m.mtxScrape.Lock()
+	defer m.mtxScrape.Unlock()
+	var err error
+	model.DefaultNameEscapingScheme, err = model.ToEscapingScheme(m.opts.NameEscapingScheme)
+	level.Info(m.logger).Log("msg", "ESCAPING SCHEME UPDATED", "scheme", m.opts.NameEscapingScheme)
+	if err != nil {
+		level.Error(m.logger).Log("msg", "error setting escaping scheme", "err", err)
+		return
+	}
+
 	var wg sync.WaitGroup
 	for setName, groups := range m.targetSets {
 		if _, ok := m.scrapePools[setName]; !ok {
@@ -230,7 +241,6 @@ func (m *Manager) reload() {
 		}(m.scrapePools[setName], groups)
 
 	}
-	m.mtxScrape.Unlock()
 	wg.Wait()
 }
 
