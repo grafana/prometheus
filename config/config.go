@@ -692,6 +692,10 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		c.KeepDroppedTargets = globalConfig.KeepDroppedTargets
 	}
 
+	if globalConfig.AllowUTF8Names {
+		c.AllowUTF8Names = true
+	}
+
 	return nil
 }
 
