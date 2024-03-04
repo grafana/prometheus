@@ -28,6 +28,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -201,6 +202,17 @@ func TestCommitErr(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	require.Equal(t, "commit error\n", string(body))
+}
+
+func TestNewWriteHandler_NoDuplicateMetricsRegistrationPanic(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	require.NotPanics(t, func() {
+		for i := 0; i < 2; i++ {
+			NewWriteHandler(log.NewNopLogger(), reg, &mockAppendable{
+				commitErr: fmt.Errorf("commit error"),
+			})
+		}
+	})
 }
 
 func BenchmarkRemoteWriteOOOSamples(b *testing.B) {

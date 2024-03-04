@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
 	otlptranslator "github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
+	util "github.com/prometheus/prometheus/util/metrics"
 )
 
 type writeHandler struct {
@@ -52,7 +53,7 @@ func NewWriteHandler(logger log.Logger, reg prometheus.Registerer, appendable st
 		}),
 	}
 	if reg != nil {
-		reg.MustRegister(h.samplesWithInvalidLabelsTotal)
+		h.samplesWithInvalidLabelsTotal = util.MustRegisterOrGet(reg, h.samplesWithInvalidLabelsTotal).(prometheus.Counter)
 	}
 	return h
 }
