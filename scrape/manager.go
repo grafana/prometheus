@@ -379,3 +379,11 @@ func (m *Manager) TargetsDroppedCounts() map[string]int {
 	}
 	return counts
 }
+
+func (m *Manager) DisableEndOfRunStalenessMarkers(targetSet string, targets []*Target) {
+	m.mtxScrape.Lock()
+	defer m.mtxScrape.Unlock()
+	if pool, ok := m.scrapePools[targetSet]; ok {
+		pool.disableEndOfRunStalenessMarkers(targets)
+	}
+}
