@@ -214,12 +214,15 @@ func newQueueManagerMetrics(r prometheus.Registerer, rn, e string) *queueManager
 		ConstLabels: constLabels,
 	})
 	m.sentBatchDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace:   namespace,
-		Subsystem:   subsystem,
-		Name:        "sent_batch_duration_seconds",
-		Help:        "Duration of send calls to the remote storage.",
-		Buckets:     append(prometheus.DefBuckets, 25, 60, 120, 300),
-		ConstLabels: constLabels,
+		Namespace:                       namespace,
+		Subsystem:                       subsystem,
+		Name:                            "sent_batch_duration_seconds",
+		Help:                            "Duration of send calls to the remote storage.",
+		Buckets:                         append(prometheus.DefBuckets, 25, 60, 120, 300),
+		ConstLabels:                     constLabels,
+		NativeHistogramBucketFactor:     1.1,
+		NativeHistogramMaxBucketNumber:  100,
+		NativeHistogramMinResetDuration: 1 * time.Hour,
 	})
 	m.highestSentTimestamp = &maxTimestamp{
 		Gauge: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -396,8 +399,10 @@ type WriteClient interface {
 // indicated by the provided WriteClient. Implements writeTo interface
 // used by WAL Watcher.
 type QueueManager struct {
-	lastSendTimestamp          atomic.Int64
-	buildRequestLimitTimestamp atomic.Int64
+	lastSendTimestamp            atomic.Int64
+	buildRequestLimitTimestamp   atomic.Int64
+	reshardDisableStartTimestamp atomic.Int64 // Time that reshard was disabled.
+	reshardDisableEndTimestamp   atomic.Int64 // Time that reshard is disabled until.
 
 	logger               log.Logger
 	flushDeadline        time.Duration
@@ -413,9 +418,10 @@ type QueueManager struct {
 	clientMtx   sync.RWMutex
 	storeClient WriteClient
 
-	seriesMtx     sync.Mutex // Covers seriesLabels and droppedSeries.
+	seriesMtx     sync.Mutex // Covers seriesLabels, droppedSeries and builder.
 	seriesLabels  map[chunks.HeadSeriesRef]labels.Labels
 	droppedSeries map[chunks.HeadSeriesRef]struct{}
+	builder       *labels.Builder
 
 	seriesSegmentMtx     sync.Mutex // Covers seriesSegmentIndexes - if you also lock seriesMtx, take seriesMtx first.
 	seriesSegmentIndexes map[chunks.HeadSeriesRef]int
@@ -482,6 +488,7 @@ func NewQueueManager(
 		seriesLabels:         make(map[chunks.HeadSeriesRef]labels.Labels),
 		seriesSegmentIndexes: make(map[chunks.HeadSeriesRef]int),
 		droppedSeries:        make(map[chunks.HeadSeriesRef]struct{}),
+		builder:              labels.NewBuilder(labels.EmptyLabels()),
 
 		numShards:   cfg.MinShards,
 		reshardChan: make(chan int),
@@ -572,7 +579,7 @@ func (t *QueueManager) sendMetadataWithBackoff(ctx context.Context, metadata []p
 	retry := func() {
 		t.metrics.retriedMetadataTotal.Add(float64(len(metadata)))
 	}
-	err = sendWriteRequestWithBackoff(ctx, t.cfg, t.logger, attemptStore, retry)
+	err = t.sendWriteRequestWithBackoff(ctx, attemptStore, retry)
 	if err != nil {
 		return err
 	}
@@ -656,7 +663,8 @@ outer:
 				return false
 			default:
 			}
-			if t.shards.enqueue(s.Ref, timeSeries{
+			if t.shards.enqueue(timeSeries{
+				ref:          s.Ref,
 				seriesLabels: lbls,
 				timestamp:    s.T,
 				value:        s.V,
@@ -712,7 +720,8 @@ outer:
 				return false
 			default:
 			}
-			if t.shards.enqueue(e.Ref, timeSeries{
+			if t.shards.enqueue(timeSeries{
+				ref:            e.Ref,
 				seriesLabels:   lbls,
 				timestamp:      e.T,
 				value:          e.V,
@@ -766,7 +775,8 @@ outer:
 				return false
 			default:
 			}
-			if t.shards.enqueue(h.Ref, timeSeries{
+			if t.shards.enqueue(timeSeries{
+				ref:          h.Ref,
 				seriesLabels: lbls,
 				timestamp:    h.T,
 				histogram:    h.H,
@@ -819,7 +829,8 @@ outer:
 				return false
 			default:
 			}
-			if t.shards.enqueue(h.Ref, timeSeries{
+			if t.shards.enqueue(timeSeries{
+				ref:            h.Ref,
 				seriesLabels:   lbls,
 				timestamp:      h.T,
 				floatHistogram: h.FH,
@@ -897,12 +908,14 @@ func (t *QueueManager) StoreSeries(series []record.RefSeries, index int) {
 		// Just make sure all the Refs of Series will insert into seriesSegmentIndexes map for tracking.
 		t.seriesSegmentIndexes[s.Ref] = index
 
-		ls := processExternalLabels(s.Labels, t.externalLabels)
-		lbls, keep := relabel.Process(ls, t.relabelConfigs...)
-		if !keep || lbls.IsEmpty() {
+		t.builder.Reset(s.Labels)
+		processExternalLabels(t.builder, t.externalLabels)
+		keep := relabel.ProcessBuilder(t.builder, t.relabelConfigs...)
+		if !keep {
 			t.droppedSeries[s.Ref] = struct{}{}
 			continue
 		}
+		lbls := t.builder.Labels()
 		t.internLabels(lbls)
 
 		// We should not ever be replacing a series labels in the map, but just
@@ -967,30 +980,14 @@ func (t *QueueManager) releaseLabels(ls labels.Labels) {
 	ls.ReleaseStrings(t.interner.release)
 }
 
-// processExternalLabels merges externalLabels into ls. If ls contains
-// a label in externalLabels, the value in ls wins.
-func processExternalLabels(ls labels.Labels, externalLabels []labels.Label) labels.Labels {
-	if len(externalLabels) == 0 {
-		return ls
-	}
-
-	b := labels.NewScratchBuilder(ls.Len() + len(externalLabels))
-	j := 0
-	ls.Range(func(l labels.Label) {
-		for j < len(externalLabels) && l.Name > externalLabels[j].Name {
-			b.Add(externalLabels[j].Name, externalLabels[j].Value)
-			j++
+// processExternalLabels merges externalLabels into b. If b contains
+// a label in externalLabels, the value in b wins.
+func processExternalLabels(b *labels.Builder, externalLabels []labels.Label) {
+	for _, el := range externalLabels {
+		if b.Get(el.Name) == "" {
+			b.Set(el.Name, el.Value)
 		}
-		if j < len(externalLabels) && l.Name == externalLabels[j].Name {
-			j++
-		}
-		b.Add(l.Name, l.Value)
-	})
-	for ; j < len(externalLabels); j++ {
-		b.Add(externalLabels[j].Name, externalLabels[j].Value)
 	}
-
-	return b.Labels()
 }
 
 func (t *QueueManager) updateShardsLoop() {
@@ -1031,6 +1028,13 @@ func (t *QueueManager) shouldReshard(desiredShards int) bool {
 	lsts := t.lastSendTimestamp.Load()
 	if lsts < minSendTimestamp {
 		level.Warn(t.logger).Log("msg", "Skipping resharding, last successful send was beyond threshold", "lastSendTimestamp", lsts, "minSendTimestamp", minSendTimestamp)
+		return false
+	}
+	if disableTimestamp := t.reshardDisableEndTimestamp.Load(); time.Now().Unix() < disableTimestamp {
+		disabledAt := time.Unix(t.reshardDisableStartTimestamp.Load(), 0)
+		disabledFor := time.Until(time.Unix(disableTimestamp, 0))
+
+		level.Warn(t.logger).Log("msg", "Skipping resharding, resharding is disabled while waiting for recoverable errors", "disabled_at", disabledAt, "disabled_for", disabledFor)
 		return false
 	}
 	return true
@@ -1121,11 +1125,14 @@ func (t *QueueManager) reshardLoop() {
 	for {
 		select {
 		case numShards := <-t.reshardChan:
-			// We start the newShards after we have stopped (the therefore completely
-			// flushed) the oldShards, to guarantee we only every deliver samples in
-			// order.
-			t.shards.stop()
-			t.shards.start(numShards)
+			// We start the newShards after we have either redistributed the samples amongst
+			// the new shards, or if that fails, we wait for the samples to be completely flushed
+			// before starting the new shards to guarantee we only every deliver samples in order.
+			successful := t.shards.reshard(numShards)
+			if !successful {
+				t.shards.stop()
+				t.shards.start(numShards)
+			}
 		case <-t.quit:
 			return
 		}
@@ -1223,6 +1230,7 @@ func (s *shards) stop() {
 
 	// Force an unclean shutdown.
 	s.hardShutdown()
+	s.updateDroppedMetrics()
 	<-s.done
 	if dropped := s.samplesDroppedOnHardShutdown.Load(); dropped > 0 {
 		level.Error(s.qm.logger).Log("msg", "Failed to flush all samples on shutdown", "count", dropped)
@@ -1232,20 +1240,88 @@ func (s *shards) stop() {
 	}
 }
 
+func (s *shards) updateDroppedMetrics() {
+	// In this case we drop all samples in the buffer and the queue.
+	// Remove them from pending and mark them as failed.
+	droppedSamples := int(s.enqueuedSamples.Load())
+	droppedExemplars := int(s.enqueuedExemplars.Load())
+	droppedHistograms := int(s.enqueuedHistograms.Load())
+	s.qm.metrics.pendingSamples.Sub(float64(droppedSamples))
+	s.qm.metrics.pendingExemplars.Sub(float64(droppedExemplars))
+	s.qm.metrics.pendingHistograms.Sub(float64(droppedHistograms))
+	s.qm.metrics.failedSamplesTotal.Add(float64(droppedSamples))
+	s.qm.metrics.failedExemplarsTotal.Add(float64(droppedExemplars))
+	s.qm.metrics.failedHistogramsTotal.Add(float64(droppedHistograms))
+	s.samplesDroppedOnHardShutdown.Add(uint32(droppedSamples))
+	s.exemplarsDroppedOnHardShutdown.Add(uint32(droppedExemplars))
+	s.histogramsDroppedOnHardShutdown.Add(uint32(droppedHistograms))
+}
+
+func (s *shards) reshard(numShards int) bool {
+	// Exclusive lock to ensure that this does not run concurrently with enqueue.
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	newQueues := make([]*queue, numShards)
+	for i := 0; i < numShards; i++ {
+		newQueues[i] = newQueue(s.qm.cfg.MaxSamplesPerSend, s.qm.cfg.Capacity)
+	}
+
+	for _, queue := range s.queues {
+		queue.batchMtx.Lock()
+
+		for _, ts := range queue.batch {
+			queueIndex := uint64(ts.ref) % uint64(len(newQueues))
+			added := newQueues[queueIndex].Append(ts)
+			if !added {
+				// We are not able to add, we can revert to the start/stop loop.
+				queue.batchMtx.Unlock()
+				return false
+			}
+		}
+	}
+
+	// We have successfully moved all the samples, now can delete the old queues.
+	for _, queue := range s.queues {
+		close(queue.batchQueue)
+		queue.batchMtx.Unlock()
+	}
+
+	// Waiting till flushDeadline for all the runShards to terminate.
+	select {
+	case <-s.done:
+	case <-time.After(s.qm.flushDeadline):
+		// Cancelling the current context so as to unblock client calls.
+		s.hardShutdown()
+		<-s.done
+	}
+
+	s.queues = newQueues
+	var hardShutdownCtx context.Context
+	hardShutdownCtx, s.hardShutdown = context.WithCancel(context.Background())
+	s.running.Store(int32(numShards))
+	s.done = make(chan struct{})
+	for i := 0; i < numShards; i++ {
+		go s.runShard(hardShutdownCtx, i, newQueues[i])
+	}
+
+	return true
+}
+
 // enqueue data (sample or exemplar). If the shard is full, shutting down, or
 // resharding, it will return false; in this case, you should back off and
 // retry. A shard is full when its configured capacity has been reached,
 // specifically, when s.queues[shard] has filled its batchQueue channel and the
 // partial batch has also been filled.
-func (s *shards) enqueue(ref chunks.HeadSeriesRef, data timeSeries) bool {
+func (s *shards) enqueue(data timeSeries) bool {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 
-	shard := uint64(ref) % uint64(len(s.queues))
 	select {
 	case <-s.softShutdown:
 		return false
 	default:
+		shard := uint64(data.ref) % uint64(len(s.queues))
 		appended := s.queues[shard].Append(data)
 		if !appended {
 			return false
@@ -1279,6 +1355,7 @@ type queue struct {
 }
 
 type timeSeries struct {
+	ref            chunks.HeadSeriesRef
 	seriesLabels   labels.Labels
 	value          float64
 	histogram      *histogram.Histogram
@@ -1450,20 +1527,6 @@ func (s *shards) runShard(ctx context.Context, shardID int, queue *queue) {
 	for {
 		select {
 		case <-ctx.Done():
-			// In this case we drop all samples in the buffer and the queue.
-			// Remove them from pending and mark them as failed.
-			droppedSamples := int(s.enqueuedSamples.Load())
-			droppedExemplars := int(s.enqueuedExemplars.Load())
-			droppedHistograms := int(s.enqueuedHistograms.Load())
-			s.qm.metrics.pendingSamples.Sub(float64(droppedSamples))
-			s.qm.metrics.pendingExemplars.Sub(float64(droppedExemplars))
-			s.qm.metrics.pendingHistograms.Sub(float64(droppedHistograms))
-			s.qm.metrics.failedSamplesTotal.Add(float64(droppedSamples))
-			s.qm.metrics.failedExemplarsTotal.Add(float64(droppedExemplars))
-			s.qm.metrics.failedHistogramsTotal.Add(float64(droppedHistograms))
-			s.samplesDroppedOnHardShutdown.Add(uint32(droppedSamples))
-			s.exemplarsDroppedOnHardShutdown.Add(uint32(droppedExemplars))
-			s.histogramsDroppedOnHardShutdown.Add(uint32(droppedHistograms))
 			return
 
 		case batch, ok := <-batchQueue:
@@ -1634,7 +1697,7 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 		s.qm.metrics.retriedHistogramsTotal.Add(float64(histogramCount))
 	}
 
-	err = sendWriteRequestWithBackoff(ctx, s.qm.cfg, s.qm.logger, attemptStore, onRetry)
+	err = s.qm.sendWriteRequestWithBackoff(ctx, attemptStore, onRetry)
 	if errors.Is(err, context.Canceled) {
 		// When there is resharding, we cancel the context for this queue, which means the data is not sent.
 		// So we exit early to not update the metrics.
@@ -1647,8 +1710,8 @@ func (s *shards) sendSamplesWithBackoff(ctx context.Context, samples []prompb.Ti
 	return err
 }
 
-func sendWriteRequestWithBackoff(ctx context.Context, cfg config.QueueConfig, l log.Logger, attempt func(int) error, onRetry func()) error {
-	backoff := cfg.MinBackoff
+func (t *QueueManager) sendWriteRequestWithBackoff(ctx context.Context, attempt func(int) error, onRetry func()) error {
+	backoff := t.cfg.MinBackoff
 	sleepDuration := model.Duration(0)
 	try := 0
 
@@ -1675,9 +1738,26 @@ func sendWriteRequestWithBackoff(ctx context.Context, cfg config.QueueConfig, l 
 		switch {
 		case backoffErr.retryAfter > 0:
 			sleepDuration = backoffErr.retryAfter
-			level.Info(l).Log("msg", "Retrying after duration specified by Retry-After header", "duration", sleepDuration)
+			level.Info(t.logger).Log("msg", "Retrying after duration specified by Retry-After header", "duration", sleepDuration)
 		case backoffErr.retryAfter < 0:
-			level.Debug(l).Log("msg", "retry-after cannot be in past, retrying using default backoff mechanism")
+			level.Debug(t.logger).Log("msg", "retry-after cannot be in past, retrying using default backoff mechanism")
+		}
+
+		// We should never reshard for a recoverable error; increasing shards could
+		// make the problem worse, particularly if we're getting rate limited.
+		//
+		// reshardDisableTimestamp holds the unix timestamp until which resharding
+		// is diableld. We'll update that timestamp if the period we were just told
+		// to sleep for is newer than the existing disabled timestamp.
+		reshardWaitPeriod := time.Now().Add(time.Duration(sleepDuration) * 2)
+		if oldTS, updated := setAtomicToNewer(&t.reshardDisableEndTimestamp, reshardWaitPeriod.Unix()); updated {
+			// If the old timestamp was in the past, then resharding was previously
+			// enabled. We want to track the time where it initially got disabled for
+			// logging purposes.
+			disableTime := time.Now().Unix()
+			if oldTS < disableTime {
+				t.reshardDisableStartTimestamp.Store(disableTime)
+			}
 		}
 
 		select {
@@ -1687,15 +1767,35 @@ func sendWriteRequestWithBackoff(ctx context.Context, cfg config.QueueConfig, l 
 
 		// If we make it this far, we've encountered a recoverable error and will retry.
 		onRetry()
-		level.Warn(l).Log("msg", "Failed to send batch, retrying", "err", err)
+		level.Warn(t.logger).Log("msg", "Failed to send batch, retrying", "err", err)
 
 		backoff = sleepDuration * 2
 
-		if backoff > cfg.MaxBackoff {
-			backoff = cfg.MaxBackoff
+		if backoff > t.cfg.MaxBackoff {
+			backoff = t.cfg.MaxBackoff
 		}
 
 		try++
+	}
+}
+
+// setAtomicToNewer atomically sets a value to the newer int64 between itself
+// and the provided newValue argument. setAtomicToNewer returns whether the
+// atomic value was updated and what the previous value was.
+func setAtomicToNewer(value *atomic.Int64, newValue int64) (previous int64, updated bool) {
+	for {
+		current := value.Load()
+		if current >= newValue {
+			// If the current stored value is newer than newValue; abort.
+			return current, false
+		}
+
+		// Try to swap the value. If the atomic value has changed, we loop back to
+		// the beginning until we've successfully swapped out the value or the
+		// value stored in it is newer than newValue.
+		if value.CompareAndSwap(current, newValue) {
+			return current, true
+		}
 	}
 }
 
