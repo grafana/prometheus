@@ -1,0 +1,29 @@
+name: Pyrobench
+on: [pull_request]
+jobs:
+  test:
+    name: Bench
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up Go 1.22
+      uses: actions/setup-go@v5
+      with:
+        go-version: 1.22
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1024
+
+    - run: |
+        # Ensure base branch is fetched
+        git fetch origin "${GITHUB_BASE_REF}" --depth 1024
+        echo "GITHUB_BASE_REF=${GITHUB_BASE_REF}"
+
+    - name: Run Benchmark
+      run: |
+        go run github.com/grafana/pyrobench@26f65feff9ff5ad092fb21b6931be8b730554a86 -v compare --git-base origin/$GITHUB_BASE_REF --github-commenter
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
