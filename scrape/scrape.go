@@ -89,7 +89,7 @@ type scrapePool struct {
 
 	noDefaultPort bool
 
-	metrics *scrapeMetrics
+	metrics *ScrapeMetrics
 }
 
 type labelLimits struct {
@@ -122,7 +122,7 @@ const maxAheadTime = 10 * time.Minute
 // returning an empty label set is interpreted as "drop".
 type labelsMutator func(labels.Labels) labels.Labels
 
-func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed uint64, logger log.Logger, buffers *pool.Pool, options *Options, metrics *scrapeMetrics) (*scrapePool, error) {
+func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed uint64, logger log.Logger, buffers *pool.Pool, options *Options, metrics *ScrapeMetrics) (*scrapePool, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -696,7 +696,7 @@ type targetScraper struct {
 	acceptHeader         string
 	acceptEncodingHeader string
 
-	metrics *scrapeMetrics
+	metrics *ScrapeMetrics
 }
 
 var errBodySizeLimit = errors.New("body size limit exceeded")
@@ -849,7 +849,7 @@ type scrapeLoop struct {
 	reportExtraMetrics  bool
 	appendMetadataToWAL bool
 
-	metrics *scrapeMetrics
+	metrics *ScrapeMetrics
 
 	skipOffsetting bool // For testability.
 }
@@ -880,7 +880,7 @@ type scrapeCache struct {
 	metaMtx  sync.Mutex
 	metadata map[string]*metaEntry
 
-	metrics *scrapeMetrics
+	metrics *ScrapeMetrics
 }
 
 // metaEntry holds meta information about a metric.
@@ -896,7 +896,7 @@ func (m *metaEntry) size() int {
 	return len(m.Help) + len(m.Unit) + len(m.Type)
 }
 
-func newScrapeCache(metrics *scrapeMetrics) *scrapeCache {
+func newScrapeCache(metrics *ScrapeMetrics) *scrapeCache {
 	return &scrapeCache{
 		series:        map[string]*cacheEntry{},
 		droppedSeries: map[string]*uint64{},
@@ -1133,7 +1133,7 @@ func newScrapeLoop(ctx context.Context,
 	appendMetadataToWAL bool,
 	target *Target,
 	passMetadataInContext bool,
-	metrics *scrapeMetrics,
+	metrics *ScrapeMetrics,
 	skipOffsetting bool,
 ) *scrapeLoop {
 	if l == nil {

@@ -19,7 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type scrapeMetrics struct {
+type ScrapeMetrics struct {
 	reg prometheus.Registerer
 	// Used by Manager.
 	targetMetadataCache     *MetadataMetricsCollector
@@ -54,8 +54,8 @@ type scrapeMetrics struct {
 	targetScrapeNativeHistogramBucketLimit prometheus.Counter
 }
 
-func newScrapeMetrics(reg prometheus.Registerer) (*scrapeMetrics, error) {
-	sm := &scrapeMetrics{reg: reg}
+func NewScrapeMetrics(reg prometheus.Registerer) (*ScrapeMetrics, error) {
+	sm := &ScrapeMetrics{reg: reg}
 
 	// Manager metrics.
 	sm.targetMetadataCache = &MetadataMetricsCollector{
@@ -257,12 +257,12 @@ func newScrapeMetrics(reg prometheus.Registerer) (*scrapeMetrics, error) {
 	return sm, nil
 }
 
-func (sm *scrapeMetrics) setTargetMetadataCacheGatherer(gatherer TargetsGatherer) {
+func (sm *ScrapeMetrics) setTargetMetadataCacheGatherer(gatherer TargetsGatherer) {
 	sm.targetMetadataCache.TargetsGatherer = gatherer
 }
 
 // Unregister unregisters all metrics.
-func (sm *scrapeMetrics) Unregister() {
+func (sm *ScrapeMetrics) Unregister() {
 	sm.reg.Unregister(sm.targetMetadataCache)
 	sm.reg.Unregister(sm.targetScrapePools)
 	sm.reg.Unregister(sm.targetScrapePoolsFailed)

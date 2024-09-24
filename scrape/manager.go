@@ -44,7 +44,7 @@ func NewManager(o *Options, logger log.Logger, app storage.Appendable, registere
 		logger = log.NewNopLogger()
 	}
 
-	sm, err := newScrapeMetrics(registerer)
+	sm, err := NewScrapeMetrics(registerer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scrape manager due to error: %w", err)
 	}
@@ -64,6 +64,31 @@ func NewManager(o *Options, logger log.Logger, app storage.Appendable, registere
 	m.metrics.setTargetMetadataCacheGatherer(m)
 
 	return m, nil
+}
+
+func NewManagerWithMetrics(o *Options, logger log.Logger, app storage.Appendable, metrics *ScrapeMetrics) *Manager {
+	if o == nil {
+		o = &Options{}
+	}
+	if logger == nil {
+		logger = log.NewNopLogger()
+	}
+
+	m := &Manager{
+		append:        app,
+		opts:          o,
+		logger:        logger,
+		scrapeConfigs: make(map[string]*config.ScrapeConfig),
+		scrapePools:   make(map[string]*scrapePool),
+		graceShut:     make(chan struct{}),
+		triggerReload: make(chan struct{}, 1),
+		metrics:       metrics,
+		buffers:       pool.New(1e3, 100e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) }),
+	}
+
+	m.metrics.setTargetMetadataCacheGatherer(m)
+
+	return m
 }
 
 // Options are the configuration parameters to the scrape manager.
@@ -108,7 +133,7 @@ type Manager struct {
 
 	triggerReload chan struct{}
 
-	metrics *scrapeMetrics
+	metrics *ScrapeMetrics
 }
 
 // Run receives and saves target set updates and triggers the scraping loops reloading.

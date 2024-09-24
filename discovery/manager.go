@@ -81,6 +81,7 @@ func CreateAndRegisterSDMetrics(reg prometheus.Registerer) (map[string]Discovere
 }
 
 // NewManager is the Discovery Manager constructor.
+// If you want multiple managers to share the same metrics, set "registerer" to nil and use "SetMetrics" in "options".
 func NewManager(ctx context.Context, logger log.Logger, registerer prometheus.Registerer, sdMetrics map[string]DiscovererMetrics, options ...func(*Manager)) *Manager {
 	if logger == nil {
 		logger = log.NewNopLogger()
@@ -99,13 +100,15 @@ func NewManager(ctx context.Context, logger log.Logger, registerer prometheus.Re
 		option(mgr)
 	}
 
-	// Register the metrics.
-	// We have to do this after setting all options, so that the name of the Manager is set.
-	if metrics, err := NewManagerMetrics(registerer, mgr.name); err == nil {
-		mgr.metrics = metrics
-	} else {
-		level.Error(logger).Log("msg", "Failed to create discovery manager metrics", "manager", mgr.name, "err", err)
-		return nil
+	if mgr.metrics == nil {
+		// Register the metrics.
+		// We have to do this after setting all options, so that the name of the Manager is set.
+		if metrics, err := NewManagerMetrics(registerer, mgr.name); err == nil {
+			mgr.metrics = metrics
+		} else {
+			level.Error(logger).Log("msg", "Failed to create discovery manager metrics", "manager", mgr.name, "err", err)
+			return nil
+		}
 	}
 
 	return mgr
@@ -169,11 +172,22 @@ func (m *Manager) Providers() []*Provider {
 	return m.providers
 }
 
+// SetMetrics is useful if you want multiple managers to share the same metrics.
+func SetMetrics(metrics *Metrics) func(*Manager) {
+	return func(m *Manager) {
+		m.mtx.Lock()
+		defer m.mtx.Unlock()
+		m.metrics = metrics
+	}
+}
+
 // UnregisterMetrics unregisters manager metrics. It does not unregister
 // service discovery or refresh metrics, whose lifecycle is managed independent
 // of the discovery Manager.
 func (m *Manager) UnregisterMetrics() {
-	m.metrics.Unregister(m.registerer)
+	if m.registerer != nil && m.metrics != nil {
+		m.metrics.Unregister(m.registerer)
+	}
 }
 
 // Run starts the background processing.
