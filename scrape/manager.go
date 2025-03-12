@@ -373,6 +373,11 @@ func (m *Manager) TargetsDroppedCounts() map[string]int {
 // targetSet. When the end-of-run staleness is disabled for a target, when it goes away, there will be no staleness
 // markers written for its series.
 func (m *Manager) DisableEndOfRunStalenessMarkers(targetSet string, targets []*Target) {
+	// This avoids mutex lock contention.
+	if len(targets) == 0 {
+		return
+	}
+
 	m.mtxScrape.Lock()
 	defer m.mtxScrape.Unlock()
 	if pool, ok := m.scrapePools[targetSet]; ok {
