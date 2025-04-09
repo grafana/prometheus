@@ -378,9 +378,12 @@ func (m *Manager) DisableEndOfRunStalenessMarkers(targetSet string, targets []*T
 		return
 	}
 
+	// Only hold the lock to find the scrape pool
 	m.mtxScrape.Lock()
-	defer m.mtxScrape.Unlock()
-	if pool, ok := m.scrapePools[targetSet]; ok {
-		pool.disableEndOfRunStalenessMarkers(targets)
+	sp, ok := m.scrapePools[targetSet]
+	m.mtxScrape.Unlock()
+
+	if ok {
+		sp.disableEndOfRunStalenessMarkers(targets)
 	}
 }
