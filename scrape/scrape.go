@@ -595,20 +595,12 @@ func (sp *scrapePool) refreshTargetLimitErr() error {
 }
 
 func (sp *scrapePool) disableEndOfRunStalenessMarkers(targets []*Target) {
-	loops := make([]loop, 0, len(targets))
-
-	// First find all the loops to minimise locking time
 	sp.mtx.Lock()
-	for _, t := range targets {
-		if l, ok := sp.loops[t.hash()]; ok {
-			loops = append(loops, l)
+	defer sp.mtx.Unlock()
+	for i := range targets {
+		if l, ok := sp.loops[targets[i].hash()]; ok {
+			l.disableEndOfRunStalenessMarkers()
 		}
-	}
-	sp.mtx.Unlock()
-
-	// Disable end of run staleness for loops we found.
-	for _, l := range loops {
-		l.disableEndOfRunStalenessMarkers()
 	}
 }
 
