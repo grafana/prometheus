@@ -1754,10 +1754,18 @@ loop:
 			hash uint64
 		)
 
+		debugLabelSet := func(lset labels.Labels) {
+			if strings.Contains(lset.Get(labels.MetricName), "bucket") && strings.Contains(contentType, "protobuf") {
+				sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
+				sl.l.Warn("response", "body", string(b))
+			}
+		}
+
 		if seriesCached {
 			ref = ce.ref
 			lset = ce.lset
 			hash = ce.hash
+			debugLabelSet(lset)
 		} else {
 			p.Labels(&lset)
 			hash = lset.Hash()
@@ -1780,15 +1788,7 @@ loop:
 				err = fmt.Errorf("invalid metric name or label names: %s", lset.String())
 				break loop
 			}
-
-			if lset.Get(labels.MetricName) == "grafana_apiserver_request_duration_seconds_bucket" {
-				for _, l := range lset {
-					if strings.Contains(l.Name, "\x00") || strings.Contains(l.Value, "\x00") {
-						sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
-						sl.l.Warn("response", "body", string(b))
-					}
-				}
-			}
+			debugLabelSet(lset)
 
 			// If any label limits is exceeded the scrape should fail.
 			if err = verifyLabelLimits(lset, sl.labelLimits); err != nil {
