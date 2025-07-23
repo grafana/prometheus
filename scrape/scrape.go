@@ -32,7 +32,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/klauspost/compress/gzip"
 	config_util "github.com/prometheus/common/config"
@@ -924,10 +923,11 @@ type loop interface {
 }
 
 type cacheEntry struct {
-	ref      storage.SeriesRef
-	lastIter uint64
-	hash     uint64
-	lset     labels.Labels
+	ref       storage.SeriesRef
+	lastIter  uint64
+	hash      uint64
+	lset      labels.Labels
+	debugInfo string
 }
 
 type scrapeLoop struct {
@@ -1097,6 +1097,11 @@ func (c *scrapeCache) get(met []byte) (*cacheEntry, bool, bool) {
 	}
 	alreadyScraped := e.lastIter == c.iter
 	e.lastIter = c.iter
+	e.debugInfo += fmt.Sprintf("labels at get: %v ||", e.lset.String())
+	if len(e.debugInfo) > 1000 {
+		e.debugInfo = e.debugInfo[len(e.debugInfo)-1000:]
+	}
+	
 	return e, true, alreadyScraped
 }
 
@@ -1104,7 +1109,7 @@ func (c *scrapeCache) addRef(met []byte, ref storage.SeriesRef, lset labels.Labe
 	if ref == 0 {
 		return
 	}
-	c.series[string(met)] = &cacheEntry{ref: ref, lastIter: c.iter, lset: lset, hash: hash}
+	c.series[string(met)] = &cacheEntry{ref: ref, lastIter: c.iter, lset: lset, hash: hash, debugInfo: fmt.Sprintf("labels at addRef: %v ||", lset.String())}
 }
 
 func (c *scrapeCache) addDropped(met []byte) {
@@ -1135,7 +1140,7 @@ func (c *scrapeCache) forEachStale(f func(labels.Labels) bool) {
 }
 
 func yoloString(b []byte) string {
-	return unsafe.String(unsafe.SliceData(b), len(b))
+	return string(b)
 }
 
 func (c *scrapeCache) setType(mfName []byte, t model.MetricType) ([]byte, *metaEntry) {
@@ -1785,6 +1790,7 @@ loop:
 			hash = ce.hash
 			if de := debugLabelSet(lset); de != nil {
 				err = de
+				sl.l.Error("invalid CACHED metric name or label names", "err", err, "met", string(met), "labels", lset.String(), "cached_debug_info", ce.debugInfo)
 				break loop
 			}
 		} else {
