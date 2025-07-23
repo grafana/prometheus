@@ -160,6 +160,8 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed 
 		return nil, fmt.Errorf("invalid metric name escaping scheme, %w", err)
 	}
 
+	logger.Warn("newScrapePool configs", "escapingScheme", cfg.MetricNameEscapingScheme, "validationScheme", cfg.MetricNameValidationScheme)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	sp := &scrapePool{
 		cancel:               cancel,
@@ -1466,6 +1468,7 @@ func (sl *scrapeLoop) scrapeAndReport(last, appendTime time.Time, errc chan<- er
 		defer sl.buffers.Put(b)
 		buf = bytes.NewBuffer(b)
 		contentType, scrapeErr = sl.scraper.readResponse(scrapeCtx, resp, buf)
+		sl.l.Warn("got scrape response content type", "contentType", contentType)
 	}
 	cancel()
 
@@ -1660,7 +1663,7 @@ func (sl *scrapeLoop) append(app storage.Appender, b []byte, contentType string,
 		p = textparse.NewNHCBParser(p, sl.symbolTable, sl.alwaysScrapeClassicHist)
 	}
 	if err != nil {
-		sl.l.Debug(
+		sl.l.Warn(
 			"Invalid content type on scrape, using fallback setting.",
 			"content_type", contentType,
 			"fallback_media_type", sl.fallbackScrapeProtocol,
@@ -1776,6 +1779,15 @@ loop:
 			if !lset.IsValid(sl.validationScheme) {
 				err = fmt.Errorf("invalid metric name or label names: %s", lset.String())
 				break loop
+			}
+
+			if lset.Get(labels.MetricName) == "grafana_apiserver_request_duration_seconds_bucket" {
+				for _, l := range lset {
+					if strings.Contains(l.Name, "\x00") || strings.Contains(l.Value, "\x00") {
+						sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
+						sl.l.Warn("response", "body", string(b))
+					}
+				}
 			}
 
 			// If any label limits is exceeded the scrape should fail.
