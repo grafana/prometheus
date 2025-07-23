@@ -1761,20 +1761,8 @@ loop:
 		)
 
 		debugLabelSet := func(lset labels.Labels) error {
-			hasBadLabels := false
-			var badLabels []string
-			for _, label := range lset {
-				if !goodLabel.MatchString(label.Name) {
-					hasBadLabels = true
-					badLabels = append(badLabels, fmt.Sprintf("name=%s", label.Name))
-				}
-				if !goodLabel.MatchString(label.Value) {
-					hasBadLabels = true
-					badLabels = append(badLabels, fmt.Sprintf("value=%s", label.Value))
-				}
-			}
-			if hasBadLabels {
-				sl.l.Warn("example of invalid labels parsed from response", "bad_labels", badLabels, "labels", lset.String())
+			if !lset.IsValid(sl.validationScheme) {
+				sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
 
 				// Write response body to file with timestamp as filename (base64 encoded)
 				timestamp := time.Now().UnixMilli()
@@ -1819,6 +1807,7 @@ loop:
 			}
 			if !lset.IsValid(sl.validationScheme) {
 				err = fmt.Errorf("invalid metric name or label names: %s", lset.String())
+				sl.l.Error("invalid metric name or label names", "err", err)
 				break loop
 			}
 			if de := debugLabelSet(lset); de != nil {
