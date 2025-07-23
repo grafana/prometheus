@@ -1747,6 +1747,15 @@ loop:
 			ref = ce.ref
 			lset = ce.lset
 			hash = ce.hash
+			if !ce.lset.IsValid(sl.validationScheme) {
+				sl.l.Error("invalid labels detected after reading from cache in append",
+					"labels", ce.lset.String(),
+					"validationScheme", sl.validationScheme,
+					"contentType", contentType,
+					"met", string(met),
+					"isHistogram", isHistogram,
+				)
+			}
 		} else {
 			p.Labels(&lset)
 			hash = lset.Hash()
@@ -1828,6 +1837,15 @@ loop:
 			if parsedTimestamp == nil || sl.trackTimestampsStaleness {
 				// Bypass staleness logic if there is an explicit timestamp.
 				sl.cache.trackStaleness(hash, lset)
+			}
+			if !lset.IsValid(sl.validationScheme) {
+				sl.l.Error("invalid labels detected before adding to cache in append",
+					"labels", lset.String(),
+					"validationScheme", sl.validationScheme,
+					"contentType", contentType,
+					"met", string(met),
+					"isHistogram", isHistogram,
+				)
 			}
 			sl.cache.addRef(met, ref, lset, hash)
 			if sampleAdded && sampleLimitErr == nil && bucketLimitErr == nil {
@@ -2194,6 +2212,14 @@ func (sl *scrapeLoop) addReportSample(app storage.Appender, s reportSample, t in
 	if ok {
 		ref = ce.ref
 		lset = ce.lset
+		if !lset.IsValid(sl.validationScheme) {
+			sl.l.Error("invalid labels detected after reading from cache in addReportSample",
+				"labels", lset.String(),
+				"validationScheme", sl.validationScheme,
+				"met", string(s.name),
+			)
+		}
+
 	} else {
 		// The constants are suffixed with the invalid \xff unicode rune to avoid collisions
 		// with scraped metrics in the cache.
@@ -2207,6 +2233,13 @@ func (sl *scrapeLoop) addReportSample(app storage.Appender, s reportSample, t in
 	switch {
 	case err == nil:
 		if !ok {
+			if !lset.IsValid(sl.validationScheme) {
+				sl.l.Error("invalid labels detected before adding to cache in addReportSample",
+					"labels", lset.String(),
+					"validationScheme", sl.validationScheme,
+					"met", string(s.name),
+				)
+			}
 			sl.cache.addRef(s.name, ref, lset, lset.Hash())
 			// We only need to add metadata once a scrape target appears.
 			if sl.appendMetadataToWAL {
