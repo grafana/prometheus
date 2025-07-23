@@ -1791,6 +1791,8 @@ loop:
 			p.Labels(&lset)
 			hash = lset.Hash()
 
+			lsetBeforeStr := lset.String()
+
 			// Hash label set as it is seen local to the target. Then add target labels
 			// and relabeling and store the final label set.
 			lset = sl.sampleMutator(lset)
@@ -1811,6 +1813,7 @@ loop:
 				break loop
 			}
 			if de := debugLabelSet(lset); de != nil {
+				sl.l.Warn("label set before mutating", "before", lsetBeforeStr, "after", lset.String())
 				err = de
 				break loop
 			}
