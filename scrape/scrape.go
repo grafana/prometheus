@@ -312,6 +312,7 @@ func (sp *scrapePool) stop() {
 func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 	sp.mtx.Lock()
 	defer sp.mtx.Unlock()
+	sp.logger.Warn("reload triggered")
 	sp.metrics.targetScrapePoolReloads.Inc()
 	start := time.Now()
 
@@ -348,6 +349,7 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 }
 
 func (sp *scrapePool) restartLoops(reuseCache bool) {
+	sp.logger.Warn("restarting scrape pool loops")
 	var (
 		wg            sync.WaitGroup
 		interval      = time.Duration(sp.config.ScrapeInterval)
@@ -387,7 +389,7 @@ func (sp *scrapePool) restartLoops(reuseCache bool) {
 		targetInterval, targetTimeout, err := t.intervalAndTimeout(interval, timeout)
 		accHeader := acceptHeader(sp.config.ScrapeProtocols, sp.escapingScheme)
 		encodingHeader := acceptEncodingHeader(enableCompression)
-		fmt.Printf("\n===> For target %q, using accept header %q and encoding %q\n\n", t.tLabels.String(), accHeader, encodingHeader)
+		sp.logger.Warn("setting the headers in restartLoops", "target", t.tLabels.String(), "accept_header", accHeader, "encoding_header", encodingHeader)
 		var (
 			s = &targetScraper{
 				Target:               t,
@@ -540,13 +542,16 @@ func (sp *scrapePool) sync(targets []*Target) {
 			// for every target.
 			var err error
 			interval, timeout, err = t.intervalAndTimeout(interval, timeout)
+			accHeader := acceptHeader(sp.config.ScrapeProtocols, sp.escapingScheme)
+			encodingHeader := acceptEncodingHeader(enableCompression)
+			sp.logger.Warn("setting the headers in sync", "target", t.tLabels.String(), "accept_header", accHeader, "encoding_header", encodingHeader)
 			s := &targetScraper{
 				Target:               t,
 				client:               sp.client,
 				timeout:              timeout,
 				bodySizeLimit:        bodySizeLimit,
-				acceptHeader:         acceptHeader(sp.config.ScrapeProtocols, sp.escapingScheme),
-				acceptEncodingHeader: acceptEncodingHeader(enableCompression),
+				acceptHeader:         accHeader,
+				acceptEncodingHeader: encodingHeader,
 				metrics:              sp.metrics,
 			}
 			l := sp.newLoop(scrapeLoopOptions{

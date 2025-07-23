@@ -168,6 +168,7 @@ func (m *Manager) reloader() {
 
 func (m *Manager) reload() {
 	m.mtxScrape.Lock()
+	m.logger.Warn("manager reloading started")
 	var wg sync.WaitGroup
 	for setName, groups := range m.targetSets {
 		if _, ok := m.scrapePools[setName]; !ok {
@@ -242,6 +243,7 @@ func (m *Manager) updateTsets(tsets map[string][]*targetgroup.Group) {
 func (m *Manager) ApplyConfig(cfg *config.Config) error {
 	m.mtxScrape.Lock()
 	defer m.mtxScrape.Unlock()
+	m.logger.Warn("ApplyConfig called")
 
 	scfgs, err := cfg.GetScrapeConfigs()
 	if err != nil {
