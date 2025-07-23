@@ -17,6 +17,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -64,6 +66,9 @@ var AlignScrapeTimestamps = true
 var errNameLabelMandatory = fmt.Errorf("missing metric name (%s label)", labels.MetricName)
 
 var _ FailureLogger = (*logging.JSONFileLogger)(nil)
+
+// Pre-compiled regex for alphanumeric validation to avoid repeated compilation.
+var goodLabel = regexp.MustCompile(`^[a-zA-Z0-9_\-.]+$`)
 
 // FailureLogger is an interface that can be used to log all failed
 // scrapes.
@@ -1755,9 +1760,20 @@ loop:
 		)
 
 		debugLabelSet := func(lset labels.Labels) {
-			if strings.Contains(lset.Get(labels.MetricName), "bucket") && strings.Contains(contentType, "protobuf") {
+			hasBadLabels := false
+			for _, label := range lset {
+				if !goodLabel.MatchString(label.Name) {
+					hasBadLabels = true
+					break
+				}
+				if !goodLabel.MatchString(label.Value) {
+					hasBadLabels = true
+					break
+				}
+			}
+			if hasBadLabels {
 				sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
-				sl.l.Warn("response", "body", string(b))
+				sl.l.Warn("response", "body", base64.StdEncoding.EncodeToString(b))
 			}
 		}
 

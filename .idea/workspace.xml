@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3c94d390-01cb-4ab8-8b91-4637984d0b86" name="Changes" comment="Add staleness disabling">
+      <change beforePath="$PROJECT_DIR$/model/textparse/protobufparse_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/model/textparse/protobufparse_test.go" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="GOROOT" url="file:///opt/homebrew/opt/go/libexec" />
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GoLinterSelectedExecutable" path="/opt/homebrew/bin/golangci-lint" />
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 3
+}</component>
+  <component name="ProjectId" id="2pfBOu9POJhBNRx0AjG93uDiqnx" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Go Build.go build scratch_10.go.executor": "Run",
+    "Go Test.TestManagerDisableEndOfRunStalenessForTargets in github.com/prometheus/prometheus/scrape.executor": "Run",
+    "Go Test.TestManagerDisableEndOfRunStalenessMarkers in github.com/prometheus/prometheus/scrape.executor": "Run",
+    "Go Test.TestScrapeLoopDisableStalenessMarkerInjection in github.com/prometheus/prometheus/scrape.executor": "Run",
+    "Go Test.go test github.com/prometheus/prometheus/model/textparse.executor": "Run",
+    "RunOnceActivity.GoLinterPluginOnboarding": "true",
+    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.migrated.go.modules.settings": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "git-widget-placeholder": "thampiotr/debug-scrape-issues",
+    "go.import.settings.migrated": "true",
+    "go.sdk.automatically.set": "true",
+    "last_opened_file_path": "/Users/thampiotr/workspace/prometheus",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "vcs.patch.path": "/Users/thampiotr/workspace"
+  },
+  "keyToStringList": {
+    "com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File": [
+      "go"
+    ]
+  }
+}]]></component>
+  <component name="RunManager" selected="Go Test.go test github.com/prometheus/prometheus/model/textparse">
+    <configuration name="go build scratch_10.go" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="prometheus" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="FILE" />
+      <package value="github.com/prometheus/prometheus" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$APPLICATION_CONFIG_DIR$/scratches/scratch_10.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="TestManagerDisableEndOfRunStalenessForTargets in github.com/prometheus/prometheus/scrape" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="prometheus" />
+      <working_directory value="$PROJECT_DIR$/scrape" />
+      <root_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/prometheus/prometheus/scrape" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <pattern value="^\QTestManagerDisableEndOfRunStalenessForTargets\E$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="TestManagerDisableEndOfRunStalenessMarkers in github.com/prometheus/prometheus/scrape" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="prometheus" />
+      <working_directory value="$PROJECT_DIR$/scrape" />
+      <root_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/prometheus/prometheus/scrape" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <pattern value="^\QTestManagerDisableEndOfRunStalenessMarkers\E$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="TestScrapeLoopDisableStalenessMarkerInjection in github.com/prometheus/prometheus/scrape" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="prometheus" />
+      <working_directory value="$PROJECT_DIR$/scrape" />
+      <root_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/prometheus/prometheus/scrape" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <pattern value="^\QTestScrapeLoopDisableStalenessMarkerInjection\E$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go test github.com/prometheus/prometheus/model/textparse" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="prometheus" />
+      <working_directory value="$PROJECT_DIR$/model/textparse" />
+      <root_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/prometheus/prometheus/model/textparse" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Go Test.go test github.com/prometheus/prometheus/model/textparse" />
+        <item itemvalue="Go Build.go build scratch_10.go" />
+        <item itemvalue="Go Test.TestScrapeLoopDisableStalenessMarkerInjection in github.com/prometheus/prometheus/scrape" />
+        <item itemvalue="Go Test.TestManagerDisableEndOfRunStalenessMarkers in github.com/prometheus/prometheus/scrape" />
+        <item itemvalue="Go Test.TestManagerDisableEndOfRunStalenessForTargets in github.com/prometheus/prometheus/scrape" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-gosdk-3b128438d3f6-07d2d2d66b1e-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-251.26927.50" />
+        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-GO-251.26927.50" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3c94d390-01cb-4ab8-8b91-4637984d0b86" name="Changes" comment="Add staleness disabling" />
+      <created>1753269405602</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1753269405602</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="RECENT_FILTERS">
+      <map>
+        <entry key="Branch">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="HEAD" />
+                </option>
+              </RecentGroup>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="grafana/staleness_disabling_v0.55.1" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
+        <entry key="User">
+          <value>
+            <list>
+              <RecentGroup>
+                <option name="FILTER_VALUES">
+                  <option value="*" />
+                </option>
+              </RecentGroup>
+            </list>
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="HEAD" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Merge pull request #37 from grafana/thampiotr/reduce-locking-in-disable-staleness&#10;Remove the disableEndOfRunStalenessMarkers optimisation as it is likely not necessary and just overreacting on my side.&#10;reduce locking in disable staleness logic&#10;Avoid lock contention in DisableEndOfRunStalenessMarkers&#10;Add scrape manager test for disabling staleness marker.&#10;Add scrape loop test for disabling staleness marker.&#10;Expose disabling staleness markers" />
+    <MESSAGE value="different way to expose staleness disabling" />
+    <MESSAGE value="Add staleness disabling" />
+    <option name="LAST_COMMIT_MESSAGE" value="Add staleness disabling" />
+  </component>
+  <component name="VgoProject">
+    <settings-migrated>true</settings-migrated>
+  </component>
+</project>
