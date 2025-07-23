@@ -385,14 +385,17 @@ func (sp *scrapePool) restartLoops(reuseCache bool) {
 
 		t := sp.activeTargets[fp]
 		targetInterval, targetTimeout, err := t.intervalAndTimeout(interval, timeout)
+		accHeader := acceptHeader(sp.config.ScrapeProtocols, sp.escapingScheme)
+		encodingHeader := acceptEncodingHeader(enableCompression)
+		fmt.Printf("\n===> For target %q, using accept header %q and encoding %q\n\n", t.tLabels.String(), accHeader, encodingHeader)
 		var (
 			s = &targetScraper{
 				Target:               t,
 				client:               sp.client,
 				timeout:              targetTimeout,
 				bodySizeLimit:        bodySizeLimit,
-				acceptHeader:         acceptHeader(sp.config.ScrapeProtocols, sp.escapingScheme),
-				acceptEncodingHeader: acceptEncodingHeader(enableCompression),
+				acceptHeader:         accHeader,
+				acceptEncodingHeader: encodingHeader,
 				metrics:              sp.metrics,
 			}
 			newLoop = sp.newLoop(scrapeLoopOptions{
