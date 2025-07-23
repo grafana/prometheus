@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -68,7 +69,7 @@ var errNameLabelMandatory = fmt.Errorf("missing metric name (%s label)", labels.
 var _ FailureLogger = (*logging.JSONFileLogger)(nil)
 
 // Pre-compiled regex for alphanumeric validation to avoid repeated compilation.
-var goodLabel = regexp.MustCompile(`^[a-zA-Z0-9_\-.]+$`)
+var goodLabel = regexp.MustCompile(`^[a-zA-Z0-9_\-.:]+$`)
 
 // FailureLogger is an interface that can be used to log all failed
 // scrapes.
@@ -1761,19 +1762,30 @@ loop:
 
 		debugLabelSet := func(lset labels.Labels) error {
 			hasBadLabels := false
+			var badLabels []string
 			for _, label := range lset {
 				if !goodLabel.MatchString(label.Name) {
 					hasBadLabels = true
-					break
+					badLabels = append(badLabels, fmt.Sprintf("name=%s", label.Name))
 				}
 				if !goodLabel.MatchString(label.Value) {
 					hasBadLabels = true
-					break
+					badLabels = append(badLabels, fmt.Sprintf("value=%s", label.Value))
 				}
 			}
 			if hasBadLabels {
-				sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
-				sl.l.Warn("response", "body", base64.StdEncoding.EncodeToString(b))
+				sl.l.Warn("example of invalid labels parsed from response", "bad_labels", badLabels, "labels", lset.String())
+
+				// Write response body to file with timestamp as filename (base64 encoded)
+				timestamp := time.Now().UnixMilli()
+				filename := fmt.Sprintf("/tmp/prometheus_invalid_labels_%d.txt", timestamp)
+				base64Data := base64.StdEncoding.EncodeToString(b)
+				if err := os.WriteFile(filename, []byte(base64Data), 0644); err != nil {
+					sl.l.Error("failed to write response body to file", "filename", filename, "err", err)
+				} else {
+					sl.l.Warn("response body written to file", "filename", filename)
+				}
+
 				return fmt.Errorf("invalid labels parsed from response")
 			}
 			return nil
