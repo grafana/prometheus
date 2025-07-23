@@ -1759,7 +1759,7 @@ loop:
 			hash uint64
 		)
 
-		debugLabelSet := func(lset labels.Labels) {
+		debugLabelSet := func(lset labels.Labels) error {
 			hasBadLabels := false
 			for _, label := range lset {
 				if !goodLabel.MatchString(label.Name) {
@@ -1774,14 +1774,19 @@ loop:
 			if hasBadLabels {
 				sl.l.Warn("example of invalid labels parsed from response", "labels", lset.String())
 				sl.l.Warn("response", "body", base64.StdEncoding.EncodeToString(b))
+				return fmt.Errorf("invalid labels parsed from response")
 			}
+			return nil
 		}
 
 		if seriesCached {
 			ref = ce.ref
 			lset = ce.lset
 			hash = ce.hash
-			debugLabelSet(lset)
+			if de := debugLabelSet(lset); de != nil {
+				err = de
+				break loop
+			}
 		} else {
 			p.Labels(&lset)
 			hash = lset.Hash()
@@ -1804,7 +1809,10 @@ loop:
 				err = fmt.Errorf("invalid metric name or label names: %s", lset.String())
 				break loop
 			}
-			debugLabelSet(lset)
+			if de := debugLabelSet(lset); de != nil {
+				err = de
+				break loop
+			}
 
 			// If any label limits is exceeded the scrape should fail.
 			if err = verifyLabelLimits(lset, sl.labelLimits); err != nil {
