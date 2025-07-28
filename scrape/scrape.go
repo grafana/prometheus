@@ -1667,6 +1667,7 @@ func (sl *scrapeLoop) append(app storage.Appender, b []byte, contentType string,
 		e              exemplar.Exemplar // escapes to heap so hoisted out of loop
 		lastMeta       *metaEntry
 		lastMFName     []byte
+		lastMFNameStr  string
 	)
 
 	exemplars := make([]exemplar.Exemplar, 0, 1)
@@ -1706,12 +1707,15 @@ loop:
 			// TODO(bwplotka): Build meta entry directly instead of locking and updating the map. This will
 			// allow to properly update metadata when e.g unit was added, then removed;
 			lastMFName, lastMeta = sl.cache.setType(p.Type())
+			lastMFNameStr = string(lastMFName)
 			continue
 		case textparse.EntryHelp:
 			lastMFName, lastMeta = sl.cache.setHelp(p.Help())
+			lastMFNameStr = string(lastMFName)
 			continue
 		case textparse.EntryUnit:
 			lastMFName, lastMeta = sl.cache.setUnit(p.Unit())
+			lastMFNameStr = string(lastMFName)
 			continue
 		case textparse.EntryComment:
 			continue
@@ -1906,11 +1910,21 @@ loop:
 				// In majority cases we can trust that the current series/histogram is matching the lastMeta and lastMFName.
 				// However, optional TYPE etc metadata and broken OM text can break this, detect those cases here.
 				// TODO(bwplotka): Consider moving this to parser as many parser users end up doing this (e.g. CT and NHCB parsing).
-				if isSeriesPartOfFamily(lset.Get(labels.MetricName), lastMFName, lastMeta.Type) {
+				if lastMFNameStr != string(lastMFName) {
+					sl.l.Error("Detected lasMFName corruption before isSeriesPartOfFamily! %v != %v", lastMFNameStr, lastMFName)
+				}
+				partOfFamily := isSeriesPartOfFamily(lset.Get(labels.MetricName), lastMFName, lastMeta.Type)
+				if lastMFNameStr != string(lastMFName) {
+					sl.l.Error("Detected lasMFName corruption after isSeriesPartOfFamily! %v != %v", lastMFNameStr, lastMFName)
+				}
+				if partOfFamily {
 					if _, merr := app.UpdateMetadata(ref, lset, lastMeta.Metadata); merr != nil {
 						// No need to fail the scrape on errors appending metadata.
 						sl.l.Debug("Error when appending metadata in scrape loop", "ref", fmt.Sprintf("%d", ref), "metadata", fmt.Sprintf("%+v", lastMeta.Metadata), "err", merr)
 					}
+				}
+				if lastMFNameStr != string(lastMFName) {
+					sl.l.Error("Detected lasMFName corruption after UpdateMetadata! %v != %v", lastMFNameStr, lastMFName)
 				}
 			}
 		}
