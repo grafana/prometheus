@@ -1751,9 +1751,9 @@ loop:
 			ref = ce.ref
 			lset = ce.lset
 			hash = ce.hash
-			if !ce.lset.IsValid(sl.validationScheme) {
+			if !lset.IsValid(sl.validationScheme) {
 				sl.l.Error("invalid labels detected after reading from cache in append",
-					"labels", ce.lset.String(),
+					"labels", lset.String(),
 					"validationScheme", sl.validationScheme,
 					"contentType", contentType,
 					"met", string(met),
@@ -1763,6 +1763,16 @@ loop:
 		} else {
 			p.Labels(&lset)
 			hash = lset.Hash()
+
+			if !lset.IsValid(sl.validationScheme) {
+				sl.l.Error("invalid labels detected right after reading from parser in append, before sample mutator",
+					"labels", lset.String(),
+					"validationScheme", sl.validationScheme,
+					"contentType", contentType,
+					"met", string(met),
+					"isHistogram", isHistogram,
+				)
+			}
 
 			// Hash label set as it is seen local to the target. Then add target labels
 			// and relabeling and store the final label set.
@@ -1780,6 +1790,13 @@ loop:
 			}
 			if !lset.IsValid(sl.validationScheme) {
 				err = fmt.Errorf("invalid metric name or label names: %s", lset.String())
+				sl.l.Error("invalid labels detected right after reading from parser in append, after sample mutator",
+					"labels", lset.String(),
+					"validationScheme", sl.validationScheme,
+					"contentType", contentType,
+					"met", string(met),
+					"isHistogram", isHistogram,
+				)
 				break loop
 			}
 
@@ -1821,6 +1838,16 @@ loop:
 			} else {
 				ref, err = app.Append(ref, lset, t, val)
 			}
+		}
+
+		if !lset.IsValid(sl.validationScheme) {
+			sl.l.Error("invalid labels detected after appending to appender in append",
+				"labels", lset.String(),
+				"validationScheme", sl.validationScheme,
+				"contentType", contentType,
+				"met", string(met),
+				"isHistogram", isHistogram,
+			)
 		}
 
 		if err == nil {
@@ -1896,6 +1923,15 @@ loop:
 				sl.l.Debug("Error while adding exemplar in AddExemplar", "exemplar", fmt.Sprintf("%+v", e), "err", exemplarErr)
 			}
 		}
+		if !lset.IsValid(sl.validationScheme) {
+			sl.l.Error("invalid labels detected after exemplars appended in append",
+				"labels", lset.String(),
+				"validationScheme", sl.validationScheme,
+				"contentType", contentType,
+				"met", string(met),
+				"isHistogram", isHistogram,
+			)
+		}
 		if outOfOrderExemplars > 0 && outOfOrderExemplars == len(exemplars) {
 			// Only report out of order exemplars if all are out of order, otherwise this was a partial update
 			// to some existing set of exemplars.
@@ -1927,6 +1963,15 @@ loop:
 					sl.l.Error("Detected lasMFName corruption after UpdateMetadata! %v != %v", lastMFNameStr, lastMFName)
 				}
 			}
+		}
+		if !lset.IsValid(sl.validationScheme) {
+			sl.l.Error("invalid labels detected after updating metadata in append",
+				"labels", lset.String(),
+				"validationScheme", sl.validationScheme,
+				"contentType", contentType,
+				"met", string(met),
+				"isHistogram", isHistogram,
+			)
 		}
 	}
 	if sampleLimitErr != nil {
