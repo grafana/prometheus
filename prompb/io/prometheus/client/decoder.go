@@ -64,6 +64,9 @@ func NewMetricStreamingDecoder(data []byte) *MetricStreamingDecoder {
 
 var errInvalidVarint = errors.New("clientpb: invalid varint encountered")
 
+// NextMetricFamily decodes the next metric family from the input without metrics.
+// Use NextMetric() to decode metrics. The MetricFamily fields Name, Help and Unit
+// are only valid until NextMetricFamily is called again.
 func (m *MetricStreamingDecoder) NextMetricFamily() error {
 	b := m.in[m.inPos:]
 	if len(b) == 0 {
@@ -169,8 +172,8 @@ func (m *MetricStreamingDecoder) Label(b *labels.ScratchBuilder) error {
 
 // parseLabel is essentially LabelPair.Unmarshal but directly adding into scratch builder
 // and reusing strings.
-func parseLabel(dAtA []byte, b *labels.ScratchBuilder) error {
-	var name, value string
+func parseLabel(dAtA []byte, b  *labels.ScratchBuilder) error {
+	var name, value []byte
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -229,7 +232,7 @@ func parseLabel(dAtA []byte, b *labels.ScratchBuilder) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			name = yoloString(dAtA[iNdEx:postIndex])
+			name = dAtA[iNdEx:postIndex]
 			if !model.LabelName(name).IsValid() {
 				return fmt.Errorf("invalid label name: %s", name)
 			}
@@ -264,8 +267,8 @@ func parseLabel(dAtA []byte, b *labels.ScratchBuilder) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			value = yoloString(dAtA[iNdEx:postIndex])
-			if !utf8.ValidString(value) {
+			value = dAtA[iNdEx:postIndex]
+			if !utf8.ValidString(yoloString(value)) {
 				return fmt.Errorf("invalid label value: %s", value)
 			}
 			iNdEx = postIndex
@@ -287,7 +290,7 @@ func parseLabel(dAtA []byte, b *labels.ScratchBuilder) error {
 	if iNdEx > l {
 		return io.ErrUnexpectedEOF
 	}
-	b.Add(name, value)
+	b.UnsafeAddBytes(name, value)
 	return nil
 }
 
