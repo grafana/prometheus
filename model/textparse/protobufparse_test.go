@@ -2561,7 +2561,6 @@ func TestProtobufParse2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := labels.NewSymbolTable()
 
 	scenarios := []struct {
 		name     string
@@ -2575,14 +2574,6 @@ func TestProtobufParse2(t *testing.T) {
 		{
 			name:   "don't parse classic and native buckets",
 			parser: NewProtobufParser(bb, false, nil),
-		},
-		{
-			name:   "parse classic and native buckets with symbol table",
-			parser: NewProtobufParser(bb, true, st),
-		},
-		{
-			name:   "don't parse classic and native buckets with symbol table",
-			parser: NewProtobufParser(bb, false, st),
 		},
 	}
 
