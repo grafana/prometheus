@@ -1840,15 +1840,15 @@ loop:
 			}
 		}
 
-		if !lset.IsValid(sl.validationScheme) {
-			sl.l.Error("invalid labels detected after appending to appender in append",
-				"labels", lset.String(),
-				"validationScheme", sl.validationScheme,
-				"contentType", contentType,
-				"met", string(met),
-				"isHistogram", isHistogram,
-			)
-		}
+		// if !lset.IsValid(sl.validationScheme) {
+		// 	sl.l.Error("invalid labels detected after appending to appender in append",
+		// 		"labels", lset.String(),
+		// 		"validationScheme", sl.validationScheme,
+		// 		"contentType", contentType,
+		// 		"met", string(met),
+		// 		"isHistogram", isHistogram,
+		// 	)
+		// }
 
 		if err == nil {
 			if (parsedTimestamp == nil || sl.trackTimestampsStaleness) && ce != nil {
@@ -1869,15 +1869,15 @@ loop:
 				// Bypass staleness logic if there is an explicit timestamp.
 				sl.cache.trackStaleness(hash, lset)
 			}
-			if !lset.IsValid(sl.validationScheme) {
-				sl.l.Error("invalid labels detected before adding to cache in append",
-					"labels", lset.String(),
-					"validationScheme", sl.validationScheme,
-					"contentType", contentType,
-					"met", string(met),
-					"isHistogram", isHistogram,
-				)
-			}
+			// if !lset.IsValid(sl.validationScheme) {
+			// 	sl.l.Error("invalid labels detected before adding to cache in append",
+			// 		"labels", lset.String(),
+			// 		"validationScheme", sl.validationScheme,
+			// 		"contentType", contentType,
+			// 		"met", string(met),
+			// 		"isHistogram", isHistogram,
+			// 	)
+			// }
 			sl.cache.addRef(met, ref, lset, hash)
 			if sampleAdded && sampleLimitErr == nil && bucketLimitErr == nil {
 				seriesAdded++
@@ -1923,15 +1923,15 @@ loop:
 				sl.l.Debug("Error while adding exemplar in AddExemplar", "exemplar", fmt.Sprintf("%+v", e), "err", exemplarErr)
 			}
 		}
-		if !lset.IsValid(sl.validationScheme) {
-			sl.l.Error("invalid labels detected after exemplars appended in append",
-				"labels", lset.String(),
-				"validationScheme", sl.validationScheme,
-				"contentType", contentType,
-				"met", string(met),
-				"isHistogram", isHistogram,
-			)
-		}
+		// if !lset.IsValid(sl.validationScheme) {
+		// 	sl.l.Error("invalid labels detected after exemplars appended in append",
+		// 		"labels", lset.String(),
+		// 		"validationScheme", sl.validationScheme,
+		// 		"contentType", contentType,
+		// 		"met", string(met),
+		// 		"isHistogram", isHistogram,
+		// 	)
+		// }
 		if outOfOrderExemplars > 0 && outOfOrderExemplars == len(exemplars) {
 			// Only report out of order exemplars if all are out of order, otherwise this was a partial update
 			// to some existing set of exemplars.
@@ -1964,15 +1964,15 @@ loop:
 				}
 			}
 		}
-		if !lset.IsValid(sl.validationScheme) {
-			sl.l.Error("invalid labels detected after updating metadata in append",
-				"labels", lset.String(),
-				"validationScheme", sl.validationScheme,
-				"contentType", contentType,
-				"met", string(met),
-				"isHistogram", isHistogram,
-			)
-		}
+		// if !lset.IsValid(sl.validationScheme) {
+		// 	sl.l.Error("invalid labels detected after updating metadata in append",
+		// 		"labels", lset.String(),
+		// 		"validationScheme", sl.validationScheme,
+		// 		"contentType", contentType,
+		// 		"met", string(met),
+		// 		"isHistogram", isHistogram,
+		// 	)
+		// }
 	}
 	if sampleLimitErr != nil {
 		if err == nil {
