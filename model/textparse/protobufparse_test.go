@@ -15,7 +15,11 @@ package textparse
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"errors"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -2541,4 +2545,140 @@ func TestProtobufParse(t *testing.T) {
 			requireEntries(t, exp, got)
 		})
 	}
+}
+
+func TestProtobufParse2(t *testing.T) {
+	// inputBuf := createTestProtoBuf(t)
+	// bb := inputBuf.Bytes()
+
+	// Read test data from file
+	bb, err := os.ReadFile("testdata/proto-base64.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Decode base64
+	bb, err = base64.StdEncoding.DecodeString(string(bb))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := labels.NewSymbolTable()
+
+	scenarios := []struct {
+		name     string
+		parser   Parser
+		expected []parsedEntry
+	}{
+		{
+			name:   "parse classic and native buckets",
+			parser: NewProtobufParser(bb, true, nil),
+		},
+		{
+			name:   "don't parse classic and native buckets",
+			parser: NewProtobufParser(bb, false, nil),
+		},
+		{
+			name:   "parse classic and native buckets with symbol table",
+			parser: NewProtobufParser(bb, true, st),
+		},
+		{
+			name:   "don't parse classic and native buckets with symbol table",
+			parser: NewProtobufParser(bb, false, st),
+		},
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			p := scenario.parser
+			testParse2(t, p)
+		})
+	}
+}
+
+func testParse2(t *testing.T, p Parser) (ret []parsedEntry) {
+	t.Helper()
+
+	var (
+		lastLabels    labels.Labels
+		lastLabelsStr = "{}"
+	)
+
+	for {
+		require.True(t, lastLabels.IsValid(model.LegacyValidation))
+		require.Equal(t, lastLabelsStr, lastLabels.String())
+		// for _, pe := range ret {
+		// 	require.True(t, pe.lset.IsValid(model.LegacyValidation))
+		// }
+
+		et, err := p.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+
+		var got parsedEntry
+		var m []byte
+
+		require.True(t, lastLabels.IsValid(model.LegacyValidation))
+		require.Equal(t, lastLabelsStr, lastLabels.String())
+
+		switch et {
+		case EntryInvalid:
+			t.Fatal("entry invalid not expected")
+		case EntrySeries, EntryHistogram:
+			var ts *int64
+			if et == EntrySeries {
+				m, ts, got.v = p.Series()
+			} else {
+				m, ts, got.shs, got.fhs = p.Histogram()
+			}
+			if ts != nil {
+				// TODO(bwplotka): Change to 0 in the interface for set check to
+				// avoid pointer mangling.
+				got.t = int64p(*ts)
+			}
+			got.m = string(m)
+
+			p.Labels(&lastLabels)
+			_ = lastLabels.Hash()
+			_ = lastLabels.IsEmpty()
+			_ = lastLabels.Has(labels.MetricName)
+			require.True(t, lastLabels.IsValid(model.LegacyValidation))
+
+			lb := labels.NewBuilder(lastLabels)
+			lb.Set("foo", "bar")
+			lb.Set("another", "label")
+			lb.Set("zoo", "animal")
+			lb.Set("bar", "baz")
+			lb.Set("metric", "name")
+			lastLabels = lb.Labels()
+
+			lastLabelsStr = lastLabels.String()
+			got.lset = lastLabels
+			t.Log(lastLabelsStr)
+
+			got.ct = p.CreatedTimestamp()
+
+			for e := (exemplar.Exemplar{}); p.Exemplar(&e); {
+				got.es = append(got.es, e)
+			}
+		case EntryType:
+			m, got.typ = p.Type()
+			got.m = string(m)
+
+		case EntryHelp:
+			m, h := p.Help()
+			got.m = string(m)
+			got.help = string(h)
+
+		case EntryUnit:
+			m, u := p.Unit()
+			got.m = string(m)
+			got.unit = string(u)
+
+		case EntryComment:
+			got.comment = string(p.Comment())
+		}
+		ret = append(ret, got)
+	}
+	return ret
 }
