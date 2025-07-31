@@ -2548,29 +2548,16 @@ func TestProtobufParse(t *testing.T) {
 
 func TestProtobufParser_LabelsCorruption(t *testing.T) {
 	testCases := []struct {
-		name                    string
-		parseClassicHistogram   bool
-		enableTypeAndUnitLabels bool
+		name                  string
+		parseClassicHistogram bool
 	}{
 		{
-			name:                    "parseClassicHistogram=true, enableTypeAndUnitLabels=true",
-			parseClassicHistogram:   true,
-			enableTypeAndUnitLabels: true,
+			name:                  "parseClassicHistogram=true",
+			parseClassicHistogram: true,
 		},
 		{
-			name:                    "parseClassicHistogram=true, enableTypeAndUnitLabels=false",
-			parseClassicHistogram:   true,
-			enableTypeAndUnitLabels: false,
-		},
-		{
-			name:                    "parseClassicHistogram=false, enableTypeAndUnitLabels=true",
-			parseClassicHistogram:   false,
-			enableTypeAndUnitLabels: true,
-		},
-		{
-			name:                    "parseClassicHistogram=false, enableTypeAndUnitLabels=false",
-			parseClassicHistogram:   false,
-			enableTypeAndUnitLabels: false,
+			name:                  "parseClassicHistogram=false",
+			parseClassicHistogram: false,
 		},
 	}
 
@@ -2601,7 +2588,7 @@ func TestProtobufParser_LabelsCorruption(t *testing.T) {
 
 				// Use protobuf parser to parse like in real usage
 				b = buf.Bytes()
-				p := NewProtobufParser(b, tc.parseClassicHistogram, tc.enableTypeAndUnitLabels, st)
+				p := NewProtobufParser(b, tc.parseClassicHistogram, st)
 				entry, err := p.Next()
 				require.NoError(t, err)
 				require.Equal(t, EntryHelp, entry)

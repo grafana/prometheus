@@ -551,7 +551,7 @@ func (p *ProtobufParser) Next() (Entry, error) {
 // * p.fieldsDone depending on p.fieldPos.
 func (p *ProtobufParser) onSeriesOrHistogramUpdate() error {
 	p.builder.Reset()
-	p.builder.Add(labels.MetricName, p.getMagicName())
+	p.builder.Add(labels.MetricName, labels.UnsafeString(p.getMagicName()))
 
 	if err := p.dec.Label(&p.builder); err != nil {
 		return err
