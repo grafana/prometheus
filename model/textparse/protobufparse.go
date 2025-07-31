@@ -586,7 +586,7 @@ func (p *ProtobufParser) onSeriesOrHistogramUpdate() error {
 func (p *ProtobufParser) getMagicName() string {
 	t := p.dec.GetType()
 	if p.state == EntryHistogram || (t != dto.MetricType_HISTOGRAM && t != dto.MetricType_GAUGE_HISTOGRAM && t != dto.MetricType_SUMMARY) {
-		return p.dec.GetName()
+		return p.dec.GetName() // Note: after the next call to dec.NextMetricFamily, this value becomes invalid.
 	}
 	if p.fieldPos == -2 {
 		return p.dec.GetName() + "_count"
@@ -597,7 +597,7 @@ func (p *ProtobufParser) getMagicName() string {
 	if t == dto.MetricType_HISTOGRAM || t == dto.MetricType_GAUGE_HISTOGRAM {
 		return p.dec.GetName() + "_bucket"
 	}
-	return p.dec.GetName()
+	return p.dec.GetName() // Note: after the next call to dec.NextMetricFamily, this value becomes invalid.
 }
 
 // getMagicLabel returns if a magic label ("quantile" or "le") is needed and, if
