@@ -555,7 +555,7 @@ func (p *ProtobufParser) onSeriesOrHistogramUpdate() error {
 	if !safe {
 		name = labels.UnsafeString(name) // Make sure the name is safe to use in labels.
 	}
-	
+
 	p.builder.Add(labels.MetricName, name)
 
 	if err := p.dec.Label(&p.builder); err != nil {
