@@ -2588,7 +2588,7 @@ func FuzzProtobufParser_Labels(f *testing.F) {
 
 			// Use protobuf parser to parse like in real usage
 			b = buf.Bytes()
-			p := NewProtobufParser(b, parseClassicHistogram, enableTypeAndUnitLabels, st)
+			p := NewProtobufParser(b, parseClassicHistogram, st)
 
 			for {
 				entry, err := p.Next()
