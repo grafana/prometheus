@@ -15,6 +15,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1674,6 +1675,17 @@ func populateTimeSeries(batch []timeSeries, pendingData []prompb.TimeSeries, sen
 
 func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, sampleCount, exemplarCount, histogramCount int, pBuf *proto.Buffer, buf compression.EncodeBuffer, compr compression.Type) error {
 	begin := time.Now()
+	samplesString := ""
+	for _, sample := range samples {
+		sampleBuf, err := json.Marshal(sample)
+		if err != nil {
+			s.qm.logger.Error("error marshalling sample", "error", err)
+			continue
+		}
+
+		samplesString += string(sampleBuf) + "\n"
+	}
+
 	s.qm.logger.Info("sending remote write request",
 		"url", s.qm.storeClient.Endpoint(),
 		"remote_name", s.qm.storeClient.Name(),
@@ -1682,6 +1694,7 @@ func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, s
 		"histograms", histogramCount,
 		"metadata", 0,
 		"compression", compr,
+		"samples_proto", samplesString,
 	)
 	rs, err := s.sendSamplesWithBackoff(ctx, samples, sampleCount, exemplarCount, histogramCount, 0, pBuf, buf, compr)
 	s.updateMetrics(ctx, err, sampleCount, exemplarCount, histogramCount, 0, rs, time.Since(begin))
@@ -1692,6 +1705,16 @@ func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, s
 // See https://github.com/prometheus/prometheus/issues/14409
 func (s *shards) sendV2Samples(ctx context.Context, samples []writev2.TimeSeries, labels []string, sampleCount, exemplarCount, histogramCount, metadataCount int, pBuf *[]byte, buf compression.EncodeBuffer, compr compression.Type) error {
 	begin := time.Now()
+	samplesString := ""
+	for _, sample := range samples {
+		sampleBuf, err := json.Marshal(sample)
+		if err != nil {
+			s.qm.logger.Error("error marshalling sample", "error", err)
+			continue
+		}
+
+		samplesString += string(sampleBuf) + "\n"
+	}
 	s.qm.logger.Info("sending remote write v2 request",
 		"url", s.qm.storeClient.Endpoint(),
 		"remote_name", s.qm.storeClient.Name(),
@@ -1700,6 +1723,7 @@ func (s *shards) sendV2Samples(ctx context.Context, samples []writev2.TimeSeries
 		"histograms", histogramCount,
 		"metadata", metadataCount,
 		"compression", compr,
+		"samples_proto", samplesString,
 	)
 	rs, err := s.sendV2SamplesWithBackoff(ctx, samples, labels, sampleCount, exemplarCount, histogramCount, metadataCount, pBuf, buf, compr)
 	s.updateMetrics(ctx, err, sampleCount, exemplarCount, histogramCount, metadataCount, rs, time.Since(begin))
