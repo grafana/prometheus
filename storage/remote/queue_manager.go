@@ -1674,6 +1674,15 @@ func populateTimeSeries(batch []timeSeries, pendingData []prompb.TimeSeries, sen
 
 func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, sampleCount, exemplarCount, histogramCount int, pBuf *proto.Buffer, buf compression.EncodeBuffer, compr compression.Type) error {
 	begin := time.Now()
+	s.qm.logger.Info("sending remote write request",
+		"url", s.qm.storeClient.Endpoint(),
+		"remote_name", s.qm.storeClient.Name(),
+		"samples", sampleCount,
+		"exemplars", exemplarCount,
+		"histograms", histogramCount,
+		"metadata", 0,
+		"compression", compr,
+	)
 	rs, err := s.sendSamplesWithBackoff(ctx, samples, sampleCount, exemplarCount, histogramCount, 0, pBuf, buf, compr)
 	s.updateMetrics(ctx, err, sampleCount, exemplarCount, histogramCount, 0, rs, time.Since(begin))
 	return err
@@ -1683,6 +1692,15 @@ func (s *shards) sendSamples(ctx context.Context, samples []prompb.TimeSeries, s
 // See https://github.com/prometheus/prometheus/issues/14409
 func (s *shards) sendV2Samples(ctx context.Context, samples []writev2.TimeSeries, labels []string, sampleCount, exemplarCount, histogramCount, metadataCount int, pBuf *[]byte, buf compression.EncodeBuffer, compr compression.Type) error {
 	begin := time.Now()
+	s.qm.logger.Info("sending remote write v2 request",
+		"url", s.qm.storeClient.Endpoint(),
+		"remote_name", s.qm.storeClient.Name(),
+		"samples", sampleCount,
+		"exemplars", exemplarCount,
+		"histograms", histogramCount,
+		"metadata", metadataCount,
+		"compression", compr,
+	)
 	rs, err := s.sendV2SamplesWithBackoff(ctx, samples, labels, sampleCount, exemplarCount, histogramCount, metadataCount, pBuf, buf, compr)
 	s.updateMetrics(ctx, err, sampleCount, exemplarCount, histogramCount, metadataCount, rs, time.Since(begin))
 	return err
