@@ -1715,6 +1715,12 @@ func (s *shards) sendV2Samples(ctx context.Context, samples []writev2.TimeSeries
 
 		samplesString += string(sampleBuf) + "\n"
 	}
+
+	symbolsString := ""
+	for i, symbol := range labels {
+		symbolsString += fmt.Sprintf("%d: %s\n", i, symbol)
+	}
+
 	s.qm.logger.Info("sending remote write v2 request",
 		"url", s.qm.storeClient.Endpoint(),
 		"remote_name", s.qm.storeClient.Name(),
@@ -1724,6 +1730,7 @@ func (s *shards) sendV2Samples(ctx context.Context, samples []writev2.TimeSeries
 		"metadata", metadataCount,
 		"compression", compr,
 		"samples_proto", samplesString,
+		"symbols", symbolsString,
 	)
 	rs, err := s.sendV2SamplesWithBackoff(ctx, samples, labels, sampleCount, exemplarCount, histogramCount, metadataCount, pBuf, buf, compr)
 	s.updateMetrics(ctx, err, sampleCount, exemplarCount, histogramCount, metadataCount, rs, time.Since(begin))
