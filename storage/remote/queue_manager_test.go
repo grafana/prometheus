@@ -31,6 +31,7 @@ import (
 	remoteapi "github.com/prometheus/client_golang/exp/api/remote"
 	"github.com/prometheus/client_golang/prometheus"
 	client_testutil "github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
@@ -201,8 +202,6 @@ func TestBasicContentNegotiation(t *testing.T) {
 
 func TestSampleDelivery(t *testing.T) {
 	t.Parallel()
-	// Let's create an even number of send batches, so we don't run into the
-	// batch timeout case.
 	n := 3
 
 	queueConfig := config.DefaultQueueConfig
@@ -221,100 +220,84 @@ func TestSampleDelivery(t *testing.T) {
 			writeConfig,
 		},
 	}
-	for _, tc := range []struct {
-		protoMsg remoteapi.WriteMessageType
 
-		name            string
-		samples         bool
-		exemplars       bool
-		histograms      bool
-		floatHistograms bool
-	}{
-		{protoMsg: remoteapi.WriteV1MessageType, samples: true, exemplars: false, histograms: false, floatHistograms: false, name: "samples only"},
-		{protoMsg: remoteapi.WriteV1MessageType, samples: true, exemplars: true, histograms: true, floatHistograms: true, name: "samples, exemplars, and histograms"},
-		{protoMsg: remoteapi.WriteV1MessageType, samples: false, exemplars: true, histograms: false, floatHistograms: false, name: "exemplars only"},
-		{protoMsg: remoteapi.WriteV1MessageType, samples: false, exemplars: false, histograms: true, floatHistograms: false, name: "histograms only"},
-		{protoMsg: remoteapi.WriteV1MessageType, samples: false, exemplars: false, histograms: false, floatHistograms: true, name: "float histograms only"},
+	for _, protoMsg := range []remoteapi.WriteMessageType{remoteapi.WriteV1MessageType, remoteapi.WriteV2MessageType} {
+		for _, rc := range []recCase{
+			{series: n, samplesPerSeries: n, histogramsPerSeries: 0, floatHistogramsPerSeries: 0, exemplarsPerSeries: 0, name: "samples only"},
+			{series: n, samplesPerSeries: 0, histogramsPerSeries: n, floatHistogramsPerSeries: 0, exemplarsPerSeries: 0, name: "histograms only"},
+			{series: n, samplesPerSeries: 0, histogramsPerSeries: 0, floatHistogramsPerSeries: n, exemplarsPerSeries: 0, name: "float histograms only"},
+			{series: n, samplesPerSeries: 0, histogramsPerSeries: 0, floatHistogramsPerSeries: 0, exemplarsPerSeries: n, name: "exemplars only"},
+			{series: n, samplesPerSeries: n, histogramsPerSeries: n, floatHistogramsPerSeries: n, exemplarsPerSeries: n, name: "all"},
+		} {
+			t.Run(fmt.Sprintf("proto=%s/case=%s", protoMsg, rc.name), func(t *testing.T) {
+				dir := t.TempDir()
+				s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil, false)
+				defer s.Close()
 
-		{protoMsg: remoteapi.WriteV2MessageType, samples: true, exemplars: false, histograms: false, floatHistograms: false, name: "samples only"},
-		{protoMsg: remoteapi.WriteV2MessageType, samples: true, exemplars: true, histograms: true, floatHistograms: true, name: "samples, exemplars, and histograms"},
-		{protoMsg: remoteapi.WriteV2MessageType, samples: false, exemplars: true, histograms: false, floatHistograms: false, name: "exemplars only"},
-		{protoMsg: remoteapi.WriteV2MessageType, samples: false, exemplars: false, histograms: true, floatHistograms: false, name: "histograms only"},
-		{protoMsg: remoteapi.WriteV2MessageType, samples: false, exemplars: false, histograms: false, floatHistograms: true, name: "float histograms only"},
-	} {
-		t.Run(fmt.Sprintf("%s-%s", tc.protoMsg, tc.name), func(t *testing.T) {
-			dir := t.TempDir()
-			s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil, false)
-			defer s.Close()
+				recs := generateRecords(rc)
 
-			var (
-				series          []record.RefSeries
-				metadata        []record.RefMetadata
-				samples         []record.RefSample
-				exemplars       []record.RefExemplar
-				histograms      []record.RefHistogramSample
-				floatHistograms []record.RefFloatHistogramSample
-			)
+				var (
+					series          = recs.series
+					metadata        = recs.metadata
+					samples         = recs.samples
+					exemplars       = recs.exemplars
+					histograms      = recs.histograms
+					floatHistograms = recs.floatHistograms
+				)
 
-			// Generates same series in both cases.
-			if tc.samples {
-				samples, series = createTimeseries(n, n)
-			}
-			if tc.exemplars {
-				exemplars, series = createExemplars(n, n)
-			}
-			if tc.histograms {
-				histograms, _, series = createHistograms(n, n, false)
-			}
-			if tc.floatHistograms {
-				_, floatHistograms, series = createHistograms(n, n, true)
-			}
-			metadata = createSeriesMetadata(series)
+				// Apply new config.
+				queueConfig.Capacity = n
+				queueConfig.MaxSamplesPerSend = n / 2
+				conf.RemoteWriteConfigs[0].ProtobufMessage = protoMsg
+				require.NoError(t, s.ApplyConfig(conf))
+				hash, err := toHash(writeConfig)
+				require.NoError(t, err)
+				qm := s.rws.queues[hash]
 
-			// Apply new config.
-			queueConfig.Capacity = len(samples)
-			queueConfig.MaxSamplesPerSend = len(samples) / 2
-			// For now we only ever have a single rw config in this test.
-			conf.RemoteWriteConfigs[0].ProtobufMessage = tc.protoMsg
-			require.NoError(t, s.ApplyConfig(conf))
-			hash, err := toHash(writeConfig)
-			require.NoError(t, err)
-			qm := s.rws.queues[hash]
+				c := NewTestWriteClient(protoMsg)
+				c.SetStoreWait(10 * time.Millisecond)
+				qm.SetClient(c)
 
-			c := NewTestWriteClient(tc.protoMsg)
-			qm.SetClient(c)
+				qm.StoreSeries(series, 0)
+				qm.StoreMetadata(metadata)
 
-			qm.StoreSeries(series, 0)
-			qm.StoreMetadata(metadata)
+				// Send first half of data.
+				c.expectSamples(samples[:len(samples)/2], series)
+				c.expectExemplars(exemplars[:len(exemplars)/2], series)
+				c.expectHistograms(histograms[:len(histograms)/2], series)
+				c.expectFloatHistograms(floatHistograms[:len(floatHistograms)/2], series)
+				if protoMsg == remoteapi.WriteV2MessageType && len(metadata) > 0 {
+					c.expectMetadataForBatch(metadata, series, samples[:len(samples)/2], exemplars[:len(exemplars)/2], histograms[:len(histograms)/2], floatHistograms[:len(floatHistograms)/2])
+				}
+				qm.Append(samples[:len(samples)/2])
+				qm.AppendExemplars(exemplars[:len(exemplars)/2])
+				qm.AppendHistograms(histograms[:len(histograms)/2])
+				qm.AppendFloatHistograms(floatHistograms[:len(floatHistograms)/2])
+				c.waitForExpectedData(t, 30*time.Second)
 
-			// Send first half of data.
-			c.expectSamples(samples[:len(samples)/2], series)
-			c.expectExemplars(exemplars[:len(exemplars)/2], series)
-			c.expectHistograms(histograms[:len(histograms)/2], series)
-			c.expectFloatHistograms(floatHistograms[:len(floatHistograms)/2], series)
-			if tc.protoMsg == remoteapi.WriteV2MessageType && len(metadata) > 0 {
-				c.expectMetadataForBatch(metadata, series, samples[:len(samples)/2], exemplars[:len(exemplars)/2], histograms[:len(histograms)/2], floatHistograms[:len(floatHistograms)/2])
-			}
-			qm.Append(samples[:len(samples)/2])
-			qm.AppendExemplars(exemplars[:len(exemplars)/2])
-			qm.AppendHistograms(histograms[:len(histograms)/2])
-			qm.AppendFloatHistograms(floatHistograms[:len(floatHistograms)/2])
-			c.waitForExpectedData(t, 30*time.Second)
+				// Send second half of data.
+				c.expectSamples(samples[len(samples)/2:], series)
+				c.expectExemplars(exemplars[len(exemplars)/2:], series)
+				c.expectHistograms(histograms[len(histograms)/2:], series)
+				c.expectFloatHistograms(floatHistograms[len(floatHistograms)/2:], series)
+				if protoMsg == remoteapi.WriteV2MessageType && len(metadata) > 0 {
+					c.expectMetadataForBatch(metadata, series, samples[len(samples)/2:], exemplars[len(exemplars)/2:], histograms[len(histograms)/2:], floatHistograms[len(floatHistograms)/2:])
+				}
+				qm.Append(samples[len(samples)/2:])
+				qm.AppendExemplars(exemplars[len(exemplars)/2:])
+				qm.AppendHistograms(histograms[len(histograms)/2:])
+				qm.AppendFloatHistograms(floatHistograms[len(floatHistograms)/2:])
+				c.waitForExpectedData(t, 30*time.Second)
 
-			// Send second half of data.
-			c.expectSamples(samples[len(samples)/2:], series)
-			c.expectExemplars(exemplars[len(exemplars)/2:], series)
-			c.expectHistograms(histograms[len(histograms)/2:], series)
-			c.expectFloatHistograms(floatHistograms[len(floatHistograms)/2:], series)
-			if tc.protoMsg == remoteapi.WriteV2MessageType && len(metadata) > 0 {
-				c.expectMetadataForBatch(metadata, series, samples[len(samples)/2:], exemplars[len(exemplars)/2:], histograms[len(histograms)/2:], floatHistograms[len(floatHistograms)/2:])
-			}
-			qm.Append(samples[len(samples)/2:])
-			qm.AppendExemplars(exemplars[len(exemplars)/2:])
-			qm.AppendHistograms(histograms[len(histograms)/2:])
-			qm.AppendFloatHistograms(floatHistograms[len(floatHistograms)/2:])
-			c.waitForExpectedData(t, 30*time.Second)
-		})
+				// Ensure the queue metrics match what was sent
+				require.Equal(t, float64(len(samples)), client_testutil.ToFloat64(qm.metrics.samplesTotal))
+				require.Equal(t, float64(len(exemplars)), client_testutil.ToFloat64(qm.metrics.exemplarsTotal))
+				require.Equal(t, float64(len(histograms)+len(floatHistograms)), client_testutil.ToFloat64(qm.metrics.histogramsTotal))
+				var durationMetric dto.Metric
+				require.NoError(t, qm.metrics.sentBatchDuration.Write(&durationMetric))
+				require.GreaterOrEqual(t, *durationMetric.Histogram.SampleSum, (10 * time.Millisecond).Seconds())
+			})
+		}
 	}
 }
 
@@ -2823,4 +2806,113 @@ func TestAppendHistogramSchemaValidation(t *testing.T) {
 			require.Equal(t, 0.0, client_testutil.ToFloat64(m.metrics.failedHistogramsTotal))
 		})
 	}
+}
+
+type recCase struct {
+	name string
+
+	series                   int
+	samplesPerSeries         int
+	histogramsPerSeries      int
+	floatHistogramsPerSeries int
+	exemplarsPerSeries       int
+
+	extraLabels []labels.Label
+
+	labelsFn func(lb *labels.ScratchBuilder, i int) labels.Labels
+	tsFn     func(i, j int) int64
+}
+
+type records struct {
+	series          []record.RefSeries
+	samples         []record.RefSample
+	histograms      []record.RefHistogramSample
+	floatHistograms []record.RefFloatHistogramSample
+	exemplars       []record.RefExemplar
+	metadata        []record.RefMetadata
+}
+
+func newTestHist(i int) *histogram.Histogram {
+	return &histogram.Histogram{
+		Schema:          2,
+		ZeroThreshold:   1e-128,
+		ZeroCount:       0,
+		Count:           2,
+		Sum:             0,
+		PositiveSpans:   []histogram.Span{{Offset: 0, Length: 1}},
+		PositiveBuckets: []int64{int64(i) + 1},
+		NegativeSpans:   []histogram.Span{{Offset: 0, Length: 1}},
+		NegativeBuckets: []int64{int64(-i) - 1},
+	}
+}
+
+func generateRecords(c recCase) (ret records) {
+	ret.series = make([]record.RefSeries, c.series)
+	ret.metadata = make([]record.RefMetadata, c.series)
+	ret.samples = make([]record.RefSample, c.series*c.samplesPerSeries)
+	ret.histograms = make([]record.RefHistogramSample, c.series*c.histogramsPerSeries)
+	ret.floatHistograms = make([]record.RefFloatHistogramSample, c.series*c.floatHistogramsPerSeries)
+	ret.exemplars = make([]record.RefExemplar, c.series*c.exemplarsPerSeries)
+
+	if c.labelsFn == nil {
+		c.labelsFn = func(lb *labels.ScratchBuilder, i int) labels.Labels {
+			// Create series with labels that contains name of series plus any extra labels supplied.
+			name := fmt.Sprintf("test_metric_%d", i)
+			lb.Reset()
+			lb.Add(model.MetricNameLabel, name)
+			for _, l := range c.extraLabels {
+				lb.Add(l.Name, l.Value)
+			}
+			lb.Sort()
+			return lb.Labels()
+		}
+	}
+	if c.tsFn == nil {
+		c.tsFn = func(_, j int) int64 { return int64(j) }
+	}
+
+	lb := labels.NewScratchBuilder(1 + len(c.extraLabels))
+	for i := range ret.series {
+		ret.series[i] = record.RefSeries{
+			Ref:    chunks.HeadSeriesRef(i),
+			Labels: c.labelsFn(&lb, i),
+		}
+		ret.metadata[i] = record.RefMetadata{
+			Ref:  chunks.HeadSeriesRef(i),
+			Type: uint8(record.Counter),
+			Unit: "unit text",
+			Help: "help text",
+		}
+		for j := range c.samplesPerSeries {
+			ret.samples[i*c.samplesPerSeries+j] = record.RefSample{
+				Ref: chunks.HeadSeriesRef(i),
+				T:   c.tsFn(i, j),
+				V:   float64(i),
+			}
+		}
+		h := newTestHist(i)
+		for j := range c.histogramsPerSeries {
+			ret.histograms[i*c.histogramsPerSeries+j] = record.RefHistogramSample{
+				Ref: chunks.HeadSeriesRef(i),
+				T:   c.tsFn(i, j),
+				H:   h,
+			}
+		}
+		for j := range c.floatHistogramsPerSeries {
+			ret.floatHistograms[i*c.floatHistogramsPerSeries+j] = record.RefFloatHistogramSample{
+				Ref: chunks.HeadSeriesRef(i),
+				T:   c.tsFn(i, j),
+				FH:  h.ToFloat(nil),
+			}
+		}
+		for j := range c.exemplarsPerSeries {
+			ret.exemplars[i*c.exemplarsPerSeries+j] = record.RefExemplar{
+				Ref:    chunks.HeadSeriesRef(i),
+				T:      c.tsFn(i, j),
+				V:      float64(i),
+				Labels: labels.FromStrings("trace_id", fmt.Sprintf("trace-%d", i)),
+			}
+		}
+	}
+	return ret
 }
