@@ -268,13 +268,20 @@ func (*Decoder) Metadata(rec []byte, metadata []RefMetadata) ([]RefMetadata, err
 		// so we can correctly align with the start with the next metadata record.
 		var unit, help string
 		for range numFields {
-			fieldName := dec.UvarintStr()
-			fieldValue := dec.UvarintStr()
-			switch fieldName {
+			// The field name is only used to dispatch below, so read it as
+			// bytes to avoid allocating a string. Comparing string(b) against
+			// the constants is optimized by the compiler to not allocate.
+			fieldName := dec.UvarintBytes()
+			switch string(fieldName) {
 			case unitMetaName:
-				unit = fieldValue
+				unit = dec.UvarintStr()
 			case helpMetaName:
-				help = fieldValue
+				help = dec.UvarintStr()
+			default:
+				// Unknown field: we must still consume the value to stay
+				// aligned with the next record, but we can discard it without
+				// allocating a string.
+				dec.UvarintBytes()
 			}
 		}
 

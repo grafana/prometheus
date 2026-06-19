@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unique"
 
 	"github.com/gogo/protobuf/proto"
 	remoteapi "github.com/prometheus/client_golang/exp/api/remote"
@@ -442,7 +443,12 @@ type QueueManager struct {
 
 	seriesMtx      sync.Mutex // Covers seriesLabels, seriesMetadata, droppedSeries and builder.
 	seriesLabels   map[chunks.HeadSeriesRef]labels.Labels
-	seriesMetadata map[chunks.HeadSeriesRef]*metadata.Metadata
+	// seriesMetadata holds an interned handle per series rather than a
+	// per-series *metadata.Metadata. Every series in a metric family shares
+	// identical TYPE/UNIT/HELP, so interning collapses those duplicates to a
+	// single canonical allocation and makes unchanged re-sends allocation-free.
+	// The zero Handle means "no metadata stored for this series".
+	seriesMetadata map[chunks.HeadSeriesRef]unique.Handle[metadata.Metadata]
 	droppedSeries  map[chunks.HeadSeriesRef]struct{}
 	builder        *labels.Builder
 
@@ -512,7 +518,7 @@ func NewQueueManager(
 		enableTypeAndUnitLabels: enableTypeAndUnitLabels,
 
 		seriesLabels:         make(map[chunks.HeadSeriesRef]labels.Labels),
-		seriesMetadata:       make(map[chunks.HeadSeriesRef]*metadata.Metadata),
+		seriesMetadata:       make(map[chunks.HeadSeriesRef]unique.Handle[metadata.Metadata]),
 		seriesSegmentIndexes: make(map[chunks.HeadSeriesRef]int),
 		droppedSeries:        make(map[chunks.HeadSeriesRef]struct{}),
 		builder:              labels.NewBuilder(labels.EmptyLabels()),
@@ -1032,11 +1038,11 @@ func (t *QueueManager) StoreMetadata(meta []record.RefMetadata) {
 	t.seriesMtx.Lock()
 	defer t.seriesMtx.Unlock()
 	for _, m := range meta {
-		t.seriesMetadata[m.Ref] = &metadata.Metadata{
+		t.seriesMetadata[m.Ref] = unique.Make(metadata.Metadata{
 			Type: record.ToMetricType(m.Type),
 			Unit: m.Unit,
 			Help: m.Help,
-		}
+		})
 	}
 }
 
@@ -1399,7 +1405,7 @@ type timeSeries struct {
 	value          float64
 	histogram      *histogram.Histogram
 	floatHistogram *histogram.FloatHistogram
-	metadata       *metadata.Metadata
+	metadata       unique.Handle[metadata.Metadata]
 	timestamp      int64
 	exemplarLabels labels.Labels
 	// The type of series: sample, exemplar, or histogram.
@@ -1952,6 +1958,7 @@ func (s *shards) sendV2SamplesWithBackoff(ctx context.Context, samples []writev2
 
 func populateV2TimeSeries(symbolTable *writev2.SymbolsTable, batch []timeSeries, pendingData []writev2.TimeSeries, sendExemplars, sendNativeHistograms, enableTypeAndUnitLabels bool) (int, int, int, int, int) {
 	var nPendingSamples, nPendingExemplars, nPendingHistograms, nPendingMetadata, nUnexpectedMetadata int
+	var zeroMeta unique.Handle[metadata.Metadata] // Sentinel for "no metadata stored".
 	for nPending, d := range batch {
 		pendingData[nPending].Samples = pendingData[nPending].Samples[:0]
 		switch {
@@ -1961,14 +1968,15 @@ func populateV2TimeSeries(symbolTable *writev2.SymbolsTable, batch []timeSeries,
 			pendingData[nPending].Metadata.UnitRef = symbolTable.Symbolize(m.Unit)
 			pendingData[nPending].Metadata.HelpRef = 0 // Type and unit does not give us help.
 			// Use Help from d.metadata if available.
-			if d.metadata != nil {
-				pendingData[nPending].Metadata.HelpRef = symbolTable.Symbolize(d.metadata.Help)
+			if d.metadata != zeroMeta {
+				pendingData[nPending].Metadata.HelpRef = symbolTable.Symbolize(d.metadata.Value().Help)
 				nPendingMetadata++
 			}
-		case d.metadata != nil:
-			pendingData[nPending].Metadata.Type = writev2.FromMetadataType(d.metadata.Type)
-			pendingData[nPending].Metadata.HelpRef = symbolTable.Symbolize(d.metadata.Help)
-			pendingData[nPending].Metadata.UnitRef = symbolTable.Symbolize(d.metadata.Unit)
+		case d.metadata != zeroMeta:
+			md := d.metadata.Value()
+			pendingData[nPending].Metadata.Type = writev2.FromMetadataType(md.Type)
+			pendingData[nPending].Metadata.HelpRef = symbolTable.Symbolize(md.Help)
+			pendingData[nPending].Metadata.UnitRef = symbolTable.Symbolize(md.Unit)
 			nPendingMetadata++
 		default:
 			// Safeguard against sending garbage in case of not having metadata

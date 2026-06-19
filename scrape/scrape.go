@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unique"
 	"unsafe"
 
 	"github.com/klauspost/compress/gzip"
@@ -1065,7 +1066,11 @@ func (c *scrapeCache) setHelp(mfName, help []byte) ([]byte, *metaEntry) {
 		c.metadata[string(mfName)] = e
 	}
 	if e.Help != string(help) {
-		e.Help = string(help)
+		// Intern the help text so identical HELP strings (e.g. the same
+		// metric family scraped across many targets) share one backing
+		// allocation. The string() conversion only happens here, on change,
+		// so the unchanged hot path still allocates nothing.
+		e.Help = unique.Make(string(help)).Value()
 		e.lastIterChange = c.iter
 	}
 	e.lastIter = c.iter
@@ -1082,7 +1087,8 @@ func (c *scrapeCache) setUnit(mfName, unit []byte) ([]byte, *metaEntry) {
 		c.metadata[string(mfName)] = e
 	}
 	if e.Unit != string(unit) {
-		e.Unit = string(unit)
+		// Intern the unit string for the same reason as Help in setHelp.
+		e.Unit = unique.Make(string(unit)).Value()
 		e.lastIterChange = c.iter
 	}
 	e.lastIter = c.iter
@@ -1376,7 +1382,16 @@ func (sl *scrapeLoop) scrapeAndReport(last, appendTime time.Time, errc chan<- er
 	scrapeCtx, cancel := context.WithTimeout(sl.parentCtx, sl.timeout)
 	resp, scrapeErr = sl.scraper.scrape(scrapeCtx)
 	if scrapeErr == nil {
-		b = sl.buffers.Get(sl.lastScrapeSize).([]byte)
+		// Size the read buffer up front so bytes.Buffer.ReadFrom does not have
+		// to grow (and repeatedly reallocate) while copying the body. The
+		// response Content-Length is the exact body size for identity encoding
+		// and a useful lower bound for gzip; it is -1 when unknown (chunked),
+		// in which case we fall back to the last scrape's size.
+		sizeHint := sl.lastScrapeSize
+		if resp != nil && resp.ContentLength > int64(sizeHint) {
+			sizeHint = int(resp.ContentLength)
+		}
+		b = sl.buffers.Get(sizeHint).([]byte)
 		defer sl.buffers.Put(b)
 		buf = bytes.NewBuffer(b)
 		contentType, scrapeErr = sl.scraper.readResponse(scrapeCtx, resp, buf)

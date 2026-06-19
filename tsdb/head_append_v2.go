@@ -18,10 +18,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"unique"
 
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -215,7 +217,8 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 	// Currently tsdb package does not test metadata.
 	if a.head.opts.EnableMetadataWALRecords && !opts.Metadata.IsEmpty() {
 		s.Lock()
-		metaChanged := s.meta == nil || !s.meta.Equals(opts.Metadata)
+		var zeroMeta unique.Handle[metadata.Metadata]
+		metaChanged := s.meta == zeroMeta || !s.meta.Value().Equals(opts.Metadata)
 		s.Unlock()
 		if metaChanged {
 			b := a.getCurrentBatch(stNone, s.ref)

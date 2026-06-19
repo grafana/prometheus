@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"unique"
 
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
@@ -1029,7 +1030,10 @@ func (a *headAppender) UpdateMetadata(ref storage.SeriesRef, lset labels.Labels,
 	}
 
 	s.Lock()
-	hasNewMetadata := s.meta == nil || *s.meta != meta
+	// Fast path: compare values without allocating a new handle. The zero
+	// unique.Handle means "no metadata has ever been set on this series".
+	var zeroMeta unique.Handle[metadata.Metadata]
+	hasNewMetadata := s.meta == zeroMeta || s.meta.Value() != meta
 	s.Unlock()
 
 	if hasNewMetadata {
@@ -1697,7 +1701,7 @@ func commitMetadata(b *appendBatch) {
 	for i, m := range b.metadata {
 		series = b.metadataSeries[i]
 		series.Lock()
-		series.meta = &metadata.Metadata{Type: record.ToMetricType(m.Type), Unit: m.Unit, Help: m.Help}
+		series.meta = unique.Make(metadata.Metadata{Type: record.ToMetricType(m.Type), Unit: m.Unit, Help: m.Help})
 		series.Unlock()
 	}
 }

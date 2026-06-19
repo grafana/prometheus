@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unique"
 
 	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
@@ -2142,8 +2143,17 @@ func (s sample) Copy() chunks.Sample {
 // are goroutine safe and it is the caller's responsibility to lock it.
 type memSeries struct {
 	// Members up to the Mutex are not changed after construction, so can be accessed without a lock.
-	ref  chunks.HeadSeriesRef
-	meta *metadata.Metadata
+	ref chunks.HeadSeriesRef
+
+	// meta is the interned handle for this series' metadata. Many series
+	// typically share the same metadata (every series in the same metric
+	// family has identical HELP/TYPE/UNIT), so storing a globally-unique
+	// handle here lets us avoid a per-series allocation of the metadata
+	// struct (and a per-series copy of the HELP string).
+	//
+	// The zero value of unique.Handle means "no metadata has been set". It
+	// is set under the series lock by commitMetadata and during WAL replay.
+	meta unique.Handle[metadata.Metadata]
 
 	// Series labels hash to use for sharding purposes. The value is always 0 when sharding has not
 	// been explicitly enabled in TSDB.

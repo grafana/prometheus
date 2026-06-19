@@ -34,6 +34,7 @@ import (
 	"testing"
 	"text/template"
 	"time"
+	"unsafe"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
@@ -1180,6 +1181,39 @@ test_metric_total 1
 	require.Equal(t, model.MetricTypeUnknown, md.Type, "unexpected metric type")
 	require.Equal(t, "other help text", md.Help)
 	require.Empty(t, md.Unit)
+}
+
+// TestScrapeCacheMetadataInterning verifies that identical Help and Unit
+// strings stored for different metric families (which in production happens
+// across the many targets that scrape the same job) are deduplicated to a
+// single backing allocation via the unique package, rather than each metaEntry
+// keeping its own copy.
+func TestScrapeCacheMetadataInterning(t *testing.T) {
+	cache := newScrapeCache(newTestScrapeMetrics(t))
+
+	// Two distinct byte slices holding the same text, with independent
+	// backing arrays, so any sharing afterwards is the result of interning.
+	help1 := []byte("the same verbose help text")
+	help2 := append([]byte(nil), help1...)
+	unit1 := []byte("seconds")
+	unit2 := append([]byte(nil), unit1...)
+
+	_, e1 := cache.setHelp([]byte("metric_a"), help1)
+	_, e2 := cache.setHelp([]byte("metric_b"), help2)
+	cache.setUnit([]byte("metric_a"), unit1)
+	cache.setUnit([]byte("metric_b"), unit2)
+
+	require.Equal(t, "the same verbose help text", e1.Help)
+	require.Equal(t, e1.Help, e2.Help)
+	require.Equal(t, "seconds", e1.Unit)
+	require.Equal(t, e1.Unit, e2.Unit)
+
+	// The two entries must share the same backing string, proving the value
+	// was interned to one allocation instead of copied per entry.
+	require.Same(t, unsafe.StringData(e1.Help), unsafe.StringData(e2.Help),
+		"expected Help strings to share one interned backing allocation")
+	require.Same(t, unsafe.StringData(e1.Unit), unsafe.StringData(e2.Unit),
+		"expected Unit strings to share one interned backing allocation")
 }
 
 func TestScrapeLoopSeriesAdded(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
@@ -2589,12 +2590,16 @@ func TestPopulateV2TimeSeries_MetadataAndTypeAndUnit(t *testing.T) {
 			}
 			builder.Sort()
 
+			var meta unique.Handle[metadata.Metadata]
+			if tc.metadata != nil {
+				meta = unique.Make(*tc.metadata)
+			}
 			batch[0] = timeSeries{
 				seriesLabels: builder.Labels(),
 				value:        123.45,
 				timestamp:    time.Now().UnixMilli(),
 				sType:        tSample,
-				metadata:     tc.metadata,
+				metadata:     meta,
 			}
 
 			pendingData := make([]writev2.TimeSeries, 1)
