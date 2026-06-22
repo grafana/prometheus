@@ -25,6 +25,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
@@ -348,6 +349,41 @@ func TestMetadataDelivery(t *testing.T) {
 	require.Equal(t, numMetadata/config.DefaultMetadataConfig.MaxSamplesPerSend+1, c.writesReceived)
 	// Make sure the last samples were sent.
 	require.Equal(t, c.receivedMetadata[metadata[len(metadata)-1].MetricFamily][0].MetricFamilyName, metadata[len(metadata)-1].MetricFamily)
+}
+
+func TestStoreMetadataInterns(t *testing.T) {
+	_, m := newTestClientAndQueueManager(t, defaultFlushDeadline, remoteapi.WriteV2MessageType)
+
+	// Refs 1-3 share an identical {Type, Unit, Help} triple; ref 4 differs.
+	meta := []record.RefMetadata{
+		{Ref: 1, Type: uint8(record.Counter), Unit: "bytes", Help: "a shared help string"},
+		{Ref: 2, Type: uint8(record.Counter), Unit: "bytes", Help: "a shared help string"},
+		{Ref: 3, Type: uint8(record.Counter), Unit: "bytes", Help: "a shared help string"},
+		{Ref: 4, Type: uint8(record.Gauge), Unit: "seconds", Help: "a different help string"},
+	}
+	m.StoreMetadata(meta)
+
+	m.seriesMtx.Lock()
+	defer m.seriesMtx.Unlock()
+
+	// Series with an identical metadata triple must resolve to the same interned
+	// handle, so it is allocated only once regardless of series count.
+	require.True(t, m.seriesMetadata[1] == m.seriesMetadata[2], "identical metadata should share one handle")
+	require.True(t, m.seriesMetadata[1] == m.seriesMetadata[3], "identical metadata should share one handle")
+	require.False(t, m.seriesMetadata[1] == m.seriesMetadata[4], "different metadata must not share a handle")
+
+	// The handle must round-trip the original values.
+	got := m.seriesMetadata[1].Value()
+	require.Equal(t, model.MetricTypeCounter, got.Type)
+	require.Equal(t, "bytes", got.Unit)
+	require.Equal(t, "a shared help string", got.Help)
+
+	// Remote-write v1 must not store metadata at all.
+	_, mv1 := newTestClientAndQueueManager(t, defaultFlushDeadline, remoteapi.WriteV1MessageType)
+	mv1.StoreMetadata(meta)
+	mv1.seriesMtx.Lock()
+	require.Empty(t, mv1.seriesMetadata)
+	mv1.seriesMtx.Unlock()
 }
 
 func TestWALMetadataDelivery(t *testing.T) {
@@ -2594,7 +2630,9 @@ func TestPopulateV2TimeSeries_MetadataAndTypeAndUnit(t *testing.T) {
 				value:        123.45,
 				timestamp:    time.Now().UnixMilli(),
 				sType:        tSample,
-				metadata:     tc.metadata,
+			}
+			if tc.metadata != nil {
+				batch[0].metadata = unique.Make(*tc.metadata)
 			}
 
 			pendingData := make([]writev2.TimeSeries, 1)
