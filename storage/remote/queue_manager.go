@@ -1047,11 +1047,11 @@ func (t *QueueManager) StoreMetadata(meta []record.RefMetadata) {
 
 // UpdateSeriesSegment updates the segment number held against the series,
 // so we can trim older ones in SeriesReset.
-func (t *QueueManager) UpdateSeriesSegment(series []record.RefSeries, index int) {
+func (t *QueueManager) UpdateSeriesSegment(refs []chunks.HeadSeriesRef, index int) {
 	t.seriesSegmentMtx.Lock()
 	defer t.seriesSegmentMtx.Unlock()
-	for _, s := range series {
-		t.seriesSegmentIndexes[s.Ref] = index
+	for _, ref := range refs {
+		t.seriesSegmentIndexes[ref] = index
 	}
 }
 

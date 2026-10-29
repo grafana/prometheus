@@ -30,6 +30,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
+	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/record"
 )
 
@@ -66,7 +67,7 @@ type WriteTo interface {
 	// garbage-collection:
 	// * First we call UpdateSeriesSegment on all current series.
 	// * Then SeriesReset is called.
-	UpdateSeriesSegment([]record.RefSeries, int)
+	UpdateSeriesSegment([]chunks.HeadSeriesRef, int)
 	// SeriesReset is called to allow the deletion of all series
 	// created in a segment lower than the argument.
 	SeriesReset(int)
@@ -683,8 +684,7 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 // Go through all series in a segment updating the segmentNum, so we can delete older series.
 // Used with readCheckpoint - implements segmentReadFn.
 func (w *Watcher) readSegmentForGC(r *LiveReader, segmentNum int, _ bool) error {
-	series := w.recordBuf.GetRefSeries(512)
-	defer w.recordBuf.PutRefSeries(series)
+	refs := make([]chunks.HeadSeriesRef, 0, 512)
 
 	dec := record.NewDecoder(labels.NewSymbolTable(), w.logger)
 	for r.Next() && !isClosed(w.quit) {
@@ -693,13 +693,14 @@ func (w *Watcher) readSegmentForGC(r *LiveReader, segmentNum int, _ bool) error 
 
 		switch dec.Type(rec) {
 		case record.Series:
-			// UpdateSeriesSegment only needs the series refs, so skip building the labels.
-			series, err := dec.SeriesRefs(rec, series[:0])
+			// Only the series refs are needed here, so skip building the labels.
+			var err error
+			refs, err = dec.SeriesRefs(rec, refs[:0])
 			if err != nil {
 				w.recordDecodeFailsMetric.Inc()
 				return err
 			}
-			w.writer.UpdateSeriesSegment(series, segmentNum)
+			w.writer.UpdateSeriesSegment(refs, segmentNum)
 
 		case record.Unknown:
 			// Could be corruption, or reading from a WAL from a newer Prometheus.

@@ -1502,8 +1502,7 @@ func TestDecoder_SeriesRefs(t *testing.T) {
 
 	require.Len(t, refs, len(full))
 	for i := range full {
-		require.Equal(t, full[i].Ref, refs[i].Ref)
-		require.True(t, refs[i].Labels.IsEmpty(), "SeriesRefs must not build labels")
+		require.Equal(t, full[i].Ref, refs[i])
 	}
 
 	t.Run("invalid record type", func(t *testing.T) {
@@ -1537,7 +1536,7 @@ func BenchmarkDecoder_SeriesVsSeriesRefs(b *testing.B) {
 	})
 	b.Run("SeriesRefs", func(b *testing.B) {
 		b.ReportAllocs()
-		buf := make([]RefSeries, 0, len(series))
+		buf := make([]chunks.HeadSeriesRef, 0, len(series))
 		for b.Loop() {
 			_, _ = dec.SeriesRefs(rec, buf[:0])
 		}

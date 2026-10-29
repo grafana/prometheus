@@ -150,12 +150,12 @@ func (wtm *writeToMock) StoreMetadata(meta []record.RefMetadata) {
 	time.Sleep(wtm.delay)
 }
 
-func (wtm *writeToMock) UpdateSeriesSegment(series []record.RefSeries, index int) {
+func (wtm *writeToMock) UpdateSeriesSegment(refs []chunks.HeadSeriesRef, index int) {
 	wtm.mu.Lock()
 	defer wtm.mu.Unlock()
 
-	for _, s := range series {
-		wtm.seriesSegmentIndexes[s.Ref] = index
+	for _, ref := range refs {
+		wtm.seriesSegmentIndexes[ref] = index
 	}
 }
 

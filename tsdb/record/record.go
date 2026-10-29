@@ -271,10 +271,10 @@ func (d *Decoder) Series(rec []byte, series []RefSeries) ([]RefSeries, error) {
 	return series, nil
 }
 
-// SeriesRefs is like Series, but it only decodes the series refs and skips over
-// the labels without building them. The returned RefSeries have empty Labels.
-// Use it when only the refs are needed, as building labels allocates for every series.
-func (d *Decoder) SeriesRefs(rec []byte, series []RefSeries) ([]RefSeries, error) {
+// SeriesRefs appends the series refs in rec to the given slice. It is like Series,
+// but skips over the labels without building them, which avoids allocating for every
+// series. Use it when only the refs are needed.
+func (*Decoder) SeriesRefs(rec []byte, refs []chunks.HeadSeriesRef) ([]chunks.HeadSeriesRef, error) {
 	dec := encoding.Decbuf{B: rec}
 
 	if Type(dec.Byte()) != Series {
@@ -288,7 +288,7 @@ func (d *Decoder) SeriesRefs(rec []byte, series []RefSeries) ([]RefSeries, error
 			_ = dec.UvarintBytes() // Label value.
 		}
 
-		series = append(series, RefSeries{Ref: chunks.HeadSeriesRef(ref)})
+		refs = append(refs, chunks.HeadSeriesRef(ref))
 	}
 	if dec.Err() != nil {
 		return nil, dec.Err()
@@ -296,7 +296,7 @@ func (d *Decoder) SeriesRefs(rec []byte, series []RefSeries) ([]RefSeries, error
 	if len(dec.B) > 0 {
 		return nil, fmt.Errorf("unexpected %d bytes left in entry", len(dec.B))
 	}
-	return series, nil
+	return refs, nil
 }
 
 // Metadata appends metadata in rec to the given slice.

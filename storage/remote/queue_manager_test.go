@@ -1346,10 +1346,15 @@ func BenchmarkSampleSend(b *testing.B) {
 			m.Start()
 			defer m.Stop()
 
+			refs := make([]chunks.HeadSeriesRef, len(recs.Series))
+			for i, s := range recs.Series {
+				refs[i] = s.Ref
+			}
+
 			b.ResetTimer()
 			for i := 0; b.Loop(); i++ {
 				m.Append(recs.Samples)
-				m.UpdateSeriesSegment(recs.Series, i+1) // simulate what wlog.Watcher.garbageCollectSeries does
+				m.UpdateSeriesSegment(refs, i+1) // simulate what wlog.Watcher.garbageCollectSeries does
 				m.SeriesReset(i + 1)
 			}
 			// Do not include shutdown
