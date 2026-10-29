@@ -1483,3 +1483,63 @@ func BenchmarkDecodeMetadata(b *testing.B) {
 		}
 	}
 }
+
+func TestDecoder_SeriesRefs(t *testing.T) {
+	var enc Encoder
+	dec := NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
+
+	series := []RefSeries{
+		{Ref: 100, Labels: labels.FromStrings("__name__", "testmetric", "foo", "bar")},
+		{Ref: 101, Labels: labels.FromStrings("__name__", "testmetric", "foo", "baz", "lorem", "ipsum")},
+		{Ref: 102, Labels: labels.EmptyLabels()},
+	}
+	rec := enc.Series(series, nil)
+
+	full, err := dec.Series(rec, nil)
+	require.NoError(t, err)
+	refs, err := dec.SeriesRefs(rec, nil)
+	require.NoError(t, err)
+
+	require.Len(t, refs, len(full))
+	for i := range full {
+		require.Equal(t, full[i].Ref, refs[i].Ref)
+		require.True(t, refs[i].Labels.IsEmpty(), "SeriesRefs must not build labels")
+	}
+
+	t.Run("invalid record type", func(t *testing.T) {
+		_, err := dec.SeriesRefs([]byte{byte(Samples)}, nil)
+		require.Error(t, err)
+	})
+	t.Run("truncated record", func(t *testing.T) {
+		_, err := dec.SeriesRefs(rec[:len(rec)-3], nil)
+		require.Error(t, err)
+	})
+}
+
+func BenchmarkDecoder_SeriesVsSeriesRefs(b *testing.B) {
+	var enc Encoder
+	series := make([]RefSeries, 1000)
+	for i := range series {
+		series[i] = RefSeries{
+			Ref:    chunks.HeadSeriesRef(i),
+			Labels: labels.FromStrings("__name__", "testmetric", "pod", fmt.Sprintf("pod-%d", i), "instance", "10.0.0.1:12345", "job", "integrations/kubernetes"),
+		}
+	}
+	rec := enc.Series(series, nil)
+	dec := NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
+
+	b.Run("Series", func(b *testing.B) {
+		b.ReportAllocs()
+		buf := make([]RefSeries, 0, len(series))
+		for b.Loop() {
+			_, _ = dec.Series(rec, buf[:0])
+		}
+	})
+	b.Run("SeriesRefs", func(b *testing.B) {
+		b.ReportAllocs()
+		buf := make([]RefSeries, 0, len(series))
+		for b.Loop() {
+			_, _ = dec.SeriesRefs(rec, buf[:0])
+		}
+	})
+}
