@@ -1,6 +1,6 @@
 module github.com/prometheus/prometheus
 
-go 1.24.0
+go 1.25
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.19.1
@@ -42,7 +42,7 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.25.1
 	github.com/ionos-cloud/sdk-go/v6 v6.3.4
 	github.com/json-iterator/go v1.1.12
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.20.2
 	github.com/kolo/xmlrpc v0.0.0-20220921171641-a4b6fa1dd06b
 	github.com/linode/linodego v1.59.0
 	github.com/miekg/dns v1.1.68
